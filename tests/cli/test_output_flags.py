@@ -19,14 +19,19 @@ from tenstorrent.cli import app
 runner = CliRunner()
 
 # Leaves that legitimately have no output of ours to shape:
-#   stubs raise UNSUPPORTED before printing anything, and the TUI hand-offs
-#   replace this process with tt-smi's own full-screen UI.
+#   stubs raise UNSUPPORTED before printing anything, the TUI hand-offs
+#   replace this process with tt-smi's own full-screen UI, and the tt-model
+#   authoring passthroughs forward every argument (-v and --help included)
+#   to tt-model untouched.
 NO_OUTPUT_OF_OURS = {
     "train",
     "compile",
     "report feedback",
     "device top",
     "smi",
+    "model package",
+    "model package-thin",
+    "model push",
 }
 # Leaves that emit data but have nothing worth suppressing separately.
 NO_QUIET = {"self check-update", "self send-telemetry"}
