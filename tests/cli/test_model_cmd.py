@@ -1264,6 +1264,7 @@ def test_model_list_offline_shows_local_bundles_only(
         "tenstorrent.modelhub.bundles.local_bundles",
         lambda **kw: [BundleInfo(name="ns/local", source="local", installed=True)],
     )
+    monkeypatch.setattr("tenstorrent.modelhub.bundles.curated_ids", lambda: {"ns/local"})
 
     def boom(**kw):  # pragma: no cover - the Hub must not be reached
         raise AssertionError("the Hub was queried under --offline")
@@ -1297,19 +1298,18 @@ def test_model_list_cached_cell_states(runner, monkeypatch, isolated_dirs):
     assert cached["ns/unpulled"] == "—"  # not pulled, so the reference is unknown
 
 
-def _stub_local(monkeypatch, entries):
+def _stub_local(monkeypatch, entries, *, curated=True):
+    """Stub the install index; `curated` also puts these bundles in the community catalog."""
     from tenstorrent.modelhub.bundles import BundleInfo
 
     made = [BundleInfo(source="local", installed=True, **e) for e in entries]
     monkeypatch.setattr("tenstorrent.modelhub.bundles.local_bundles", lambda **kw: made)
+    ids = {b.name.lower() for b in made} if curated else set()
+    monkeypatch.setattr("tenstorrent.modelhub.bundles.curated_ids", lambda: ids)
     return made
 
 
-def test_model_list_includes_unpublished_local_bundles(
-    runner, monkeypatch, isolated_dirs
-):
-    """A bundle someone shared privately is installed here but absent from the
-    catalog — it must still be listed, marked as local."""
+def test_model_list_lists_curated_local_bundles(runner, monkeypatch, isolated_dirs):
     _stub_bundles(monkeypatch, [{"name": "ns/published"}])
     _stub_local(monkeypatch, [{"name": "someone/private", "kind": "container"}])
     result = runner.invoke(app, ["model", "list", "--json"])
@@ -1319,6 +1319,15 @@ def test_model_list_includes_unpublished_local_bundles(
         m["name"]: m["source"] for m in payload["models"] if m["source"] not in _CATALOG_SOURCES
     }
     assert rows == {"ns/published": "HuggingFace", "someone/private": "local"}
+
+
+def test_model_list_hides_uncurated_local_bundles(runner, monkeypatch, isolated_dirs):
+    """An installed bundle outside the community catalog still serves, but is not listed."""
+    _stub_bundles(monkeypatch, [])
+    _stub_local(monkeypatch, [{"name": "someone/private"}], curated=False)
+    result = runner.invoke(app, ["model", "list", "--json"])
+    assert result.exit_code == 0, result.output
+    assert "someone/private" not in {m["name"] for m in _json_payload(result.output)["models"]}
 
 
 def test_model_list_lists_a_bundle_once_per_source(

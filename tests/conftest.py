@@ -207,6 +207,7 @@ def isolated_dirs(request, tmp_path, monkeypatch):
         "TT_MANIFEST_PATH",
         "TT_GOLDEN_PATH",
         "TT_STUDIO_MODELS_PATH",
+        "TT_COMMUNITY_CATALOG_PATH",
         "HF_TOKEN",
         "HF_TOKEN_PATH",
     ):
@@ -282,6 +283,22 @@ def isolated_dirs(request, tmp_path, monkeypatch):
 @pytest.fixture
 def runner():
     return CliRunner()
+
+
+@pytest.fixture
+def curated_catalog(tmp_path, monkeypatch):
+    """Write a community catalog of `(repo, tags)` pairs and point tt at it."""
+
+    def write(*repos: tuple[str, list[str]]) -> Path:
+        lines = ["schema_version = 1"]
+        for repo, tags in repos:
+            lines += ["", "[[bundle]]", f"repo = {json.dumps(repo)}", f"tags = {json.dumps(tags)}"]
+        path = tmp_path / "community_catalog.toml"
+        path.write_text("\n".join(lines) + "\n")
+        monkeypatch.setenv("TT_COMMUNITY_CATALOG_PATH", str(path))
+        return path
+
+    return write
 
 
 @pytest.fixture

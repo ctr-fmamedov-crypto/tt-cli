@@ -1,14 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2025-2026 Tenstorrent USA, Inc.
 
-"""Community tt-model bundles, read straight from the Hugging Face Hub.
+"""Community tt-model bundles published as Hugging Face repos.
 
-tt-model-manager publishes bundles as HF model repos and opts them into a
-community catalog with a repo tag; `tt-model search --catalog` lists that set.
-tt queries the Hub itself rather than shelling out, for two reasons: the tool's
-own JSON carries only id/downloads/visibility (the repo *tags* hold the arch and
-packaging, which is what a listing wants), and `tt model list` must not have to
-install tt-model just to show what exists.
+tt-model-manager publishes bundles as HF model repos. Which of them the community
+listing shows comes from a curated file (see _listed_repos).
 
 Bundles deliberately do NOT go through ModelCatalog: they share no schema with
 the released compat spec (no per-device status, no max_context). `tt model
@@ -23,7 +19,11 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from importlib import resources
 from pathlib import Path
+
+import tomlkit
+from tomlkit.exceptions import ParseError
 
 from ..config.paths import get_paths
 from ..config.store import ConfigStore
@@ -426,45 +426,91 @@ def local_bundles(config: ConfigStore | None = None) -> list[BundleInfo]:
     return found
 
 
+CURATED_SCHEMA_VERSION = 1
+CURATED_PATH_ENV = "TT_COMMUNITY_CATALOG_PATH"
+
+
+@dataclass(frozen=True)
+class _ListedRepo:
+    """One community listing row, before enrichment — the fields a Hub ModelInfo has."""
+
+    id: str
+    tags: list[str]
+    downloads: int | None = None
+
+
+def _curated_error(origin: str, what: str, why: str | None = None) -> TTError:
+    return TTError(
+        f"Community catalog at {origin} {what}",
+        why=why,
+        next_step=f"Reinstall tt, or fix {CURATED_PATH_ENV}.",
+        exit_code=ExitCode.CONFIG,
+    )
+
+
+def _load_curated() -> list[_ListedRepo]:
+    """The bundled community_catalog.toml, or the file CURATED_PATH_ENV names."""
+    override = os.environ.get(CURATED_PATH_ENV)
+    if override:
+        path = Path(override)
+        if not path.exists():
+            raise TTError(
+                f"{CURATED_PATH_ENV} points at {path}, which does not exist.",
+                next_step=f"Fix or unset {CURATED_PATH_ENV} to use the bundled list.",
+                exit_code=ExitCode.CONFIG,
+            )
+        text, origin = path.read_text(), str(path)
+    else:
+        text = (resources.files("tenstorrent.modelhub") / "community_catalog.toml").read_text()
+        origin = "bundled community_catalog.toml"
+    try:
+        doc = tomlkit.parse(text).unwrap()
+    except ParseError as exc:
+        raise _curated_error(origin, "is not valid TOML.", why=str(exc)) from exc
+    if doc.get("schema_version") != CURATED_SCHEMA_VERSION:
+        raise _curated_error(origin, "has unsupported schema_version.")
+    repos = []
+    for raw in doc.get("bundle") or []:
+        repo = str(raw.get("repo", "")).strip()
+        if repo.count("/") != 1 or not all(repo.split("/")):
+            raise _curated_error(origin, f"lists {repo!r}, which is not a namespace/name repo id.")
+        repos.append(_ListedRepo(id=repo, tags=[str(t).lower() for t in raw.get("tags") or []]))
+    return repos
+
+
+def curated_ids() -> set[str]:
+    """Lowercased repo ids of the bundles the community listing shows."""
+    return {repo.id.lower() for repo in _load_curated()}
+
+
+def _listed_repos(query: str | None, limit: int) -> list[_ListedRepo]:
+    """The repos the community listing shows, filtered by `query` (substring of
+    the id, as the Hub's `search` matches).
+
+    Temporary: read from the curated file until whitelisting ships, then this
+    goes back to a Hub query (e.g. the tenstorrent org's bundles)."""
+    wanted = (query or "").lower()
+    return [repo for repo in _load_curated() if wanted in repo.id.lower()][:limit]
+
+
 def search_community(
     *,
     limit: int = 100,
     query: str | None = None,
     config: ConfigStore | None = None,
 ) -> list[BundleInfo]:
-    """Bundles opted into the community catalog, in the Hub's own order (newest
-    first); the caller sorts the merged listing.
-
-    Network-only by nature: the catalog is a Hub index, so there is nothing local
-    to fall back on. `config` enables the weights-cache lookup for installed
+    """Bundles in the community listing, in listing order; the caller sorts the
+    merged listing. `config` enables the weights-cache lookup for installed
     bundles (it resolves the HF cache root).
 
-    An untagged, never-pulled bundle costs one extra Hub fetch each (see
-    hardware_from_hub_manifest) -- bounded by how many bundles actually lack the
-    tag, not by the catalog size; 2 of 46 published bundles need it today."""
-    from huggingface_hub import HfApi
-    from huggingface_hub.errors import HfHubHTTPError
-
-    try:
-        found = list(
-            HfApi().list_models(filter=CATALOG_TAG, search=query or None, limit=limit)
-        )
-    except (HfHubHTTPError, OSError) as exc:
-        raise TTError(
-            "Could not reach the Hugging Face Hub.",
-            why=str(exc),
-            next_step="Check your connection, or pass --catalog to list the "
-            "released model catalog without contacting the Hub.",
-            exit_code=ExitCode.ERROR,
-        ) from exc
+    A listed bundle with no hardware tag that was never pulled costs one Hub
+    fetch (see hardware_from_hub_manifest)."""
     installed = installed_bundles()
     sizes = hub.cached_sizes(config) if config is not None else None
     bundles = []
-    for repo in found:
-        repo_id = str(getattr(repo, "id", "") or "")
-        if not repo_id:
-            continue
-        kind, engine, arch, hardware = _classify(list(getattr(repo, "tags", None) or []))
+    for repo in _listed_repos(query, limit):
+        repo_id = repo.id
+        kind, engine, arch, hardware = _classify(repo.tags)
         entry = installed.get(repo_id.lower())
         weights_repo = weights_bytes = None
         if entry is not None:
@@ -484,7 +530,7 @@ def search_community(
                 engine=engine,
                 arch=arch,
                 hardware=hardware,
-                downloads=getattr(repo, "downloads", None),
+                downloads=repo.downloads,
                 installed=entry is not None,
                 weights_repo=weights_repo,
                 weights_bytes=weights_bytes,

@@ -274,6 +274,38 @@ def test_serve_tt_model_warns_that_device_is_not_its_flag(
 
 
 @pytest.mark.fakes_only
+def test_serve_tt_model_warns_about_an_uncurated_bundle_but_serves_it(
+    runner, fake_model_manager, curated_catalog, isolated_dirs
+):
+    curated_catalog(("ns/other", ["p150"]))
+    result = runner.invoke(app, ["serve", "ns/bundle"])
+    assert result.exit_code == 0, result.output
+    assert "ns/bundle is not in the community catalog" in result.output
+    record = json.loads(fake_model_manager.read_text().splitlines()[-1])
+    assert record["argv"] == ["serve", "ns/bundle"]
+
+
+@pytest.mark.fakes_only
+def test_serve_tt_model_does_not_warn_about_a_curated_bundle(
+    runner, fake_model_manager, curated_catalog, isolated_dirs
+):
+    curated_catalog(("NS/Bundle", ["p150"]))
+    result = runner.invoke(app, ["serve", "ns/bundle"])
+    assert result.exit_code == 0, result.output
+    assert "not in the community catalog" not in result.output
+
+
+@pytest.mark.fakes_only
+def test_serve_tt_model_still_serves_when_the_catalog_is_broken(
+    runner, fake_model_manager, tmp_path, monkeypatch, isolated_dirs
+):
+    monkeypatch.setenv("TT_COMMUNITY_CATALOG_PATH", str(tmp_path / "absent.toml"))
+    result = runner.invoke(app, ["serve", "ns/bundle"])
+    assert result.exit_code == 0, result.output
+    assert "could not check the community catalog" in result.output
+
+
+@pytest.mark.fakes_only
 def test_serve_passes_unknown_flags_through_to_tt_model(
     runner, fake_model_manager, isolated_dirs
 ):

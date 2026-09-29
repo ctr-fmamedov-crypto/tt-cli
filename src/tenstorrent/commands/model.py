@@ -347,10 +347,14 @@ def _community_rows(appctx, *, cached: bool, hardware: str | None) -> list[dict]
     Filtered the same way as the catalog side: detected device by default,
     --hw for an explicit one, --all for everything (see
     bundles.hardware_satisfies for what counts as a match). """
-    # Local installs first: they need no network, and they are the only source for a
-    # bundle nobody published — someone shares an id, you pull it, the Hub shows
-    # nothing. Catalog rows win on name, since a listed bundle is the richer record.
-    local = bundles.local_bundles(config=appctx.config)
+    # Local installs first: they need no network. Only curated bundles are listed,
+    # installed or not; an unlisted one still serves, with a warning.
+    try:
+        curated = bundles.curated_ids()
+    except TTError as err:
+        appctx.output.warn(f"community bundles skipped ({err.what}) — showing the catalog only.")
+        return []
+    local = [b for b in bundles.local_bundles(config=appctx.config) if b.name.lower() in curated]
     if appctx.offline:
         # The catalog is a Hub index with no bundled copy, but local installs are
         # entirely on disk — show those rather than refusing the whole command.

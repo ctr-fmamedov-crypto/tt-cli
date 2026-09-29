@@ -612,6 +612,16 @@ def _serve_with_tt_model_manager(
             "--device is a tt-inference-server option; tt-model detects the machine "
             "itself (override with its own --arch)."
         )
+    try:
+        curated = model.lower() in bundles.curated_ids()
+    except TTError as err:
+        appctx.output.warn(f"could not check the community catalog ({err.what}).")
+        curated = True
+    if not curated:
+        appctx.output.warn(
+            f"{model} is not in the community catalog (`tt model list --community`); "
+            "it has not been reviewed for listing."
+        )
     if dry_run:
         plan = backend.plan(
             model, offline=offline, port=port, serve_flags=serve_flags, extra_args=extra_args

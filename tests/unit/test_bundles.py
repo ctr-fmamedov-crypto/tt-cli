@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from tenstorrent.modelhub.bundles import (
     MANIFEST_NAME,
     _classify,
@@ -187,23 +189,13 @@ def test_hardware_from_hub_manifest_is_empty_on_any_failure(monkeypatch):
     assert hardware_from_hub_manifest("ns/gone") == []
 
 
-class _Repo:
-    def __init__(self, id, tags):
-        self.id = id
-        self.tags = tags
-        self.downloads = 0
-
-
-def test_search_community_fetches_the_manifest_for_an_untagged_bundle(monkeypatch):
+def test_search_community_fetches_the_manifest_for_an_untagged_bundle(
+    curated_catalog, monkeypatch
+):
     """No board tag and never pulled here: the manifest on the Hub is the only
     source left, so it is fetched — but only for this one bundle, not the
     tagged one beside it."""
-    monkeypatch.setattr(
-        "huggingface_hub.HfApi.list_models",
-        lambda self, **kw: iter(
-            [_Repo("ns/untagged", ["blackhole"]), _Repo("ns/tagged", ["blackhole", "p300"])]
-        ),
-    )
+    curated_catalog(("ns/untagged", ["blackhole"]), ("ns/tagged", ["blackhole", "p300"]))
     calls = []
 
     def fake_hardware_from_hub_manifest(repo_id):
@@ -220,7 +212,7 @@ def test_search_community_fetches_the_manifest_for_an_untagged_bundle(monkeypatc
 
 
 def test_search_community_skips_the_hub_manifest_for_an_installed_bundle(
-    tmp_path, monkeypatch
+    tmp_path, curated_catalog, monkeypatch
 ):
     """A bundle pulled here already has a local manifest — hardware_for reads
     that, so the untagged fallback must not also hit the Hub."""
@@ -235,10 +227,7 @@ def test_search_community_skips_the_hub_manifest_for_an_installed_bundle(
     )
     (root / "installed.json").write_text(json.dumps({"ns/untagged": {"repo_id": "ns/untagged"}}))
 
-    monkeypatch.setattr(
-        "huggingface_hub.HfApi.list_models",
-        lambda self, **kw: iter([_Repo("ns/untagged", ["blackhole"])]),
-    )
+    curated_catalog(("ns/untagged", ["blackhole"]))
 
     def boom(repo_id):  # pragma: no cover - must never run
         raise AssertionError("the Hub manifest fallback ran for an installed bundle")
@@ -246,3 +235,55 @@ def test_search_community_skips_the_hub_manifest_for_an_installed_bundle(
     monkeypatch.setattr("tenstorrent.modelhub.bundles.hardware_from_hub_manifest", boom)
     (found,) = bundles.search_community()
     assert found.hardware == ["p300x2"]
+
+
+# -- curated community catalog ------------------------------------------------------
+def test_the_bundled_community_catalog_loads():
+    from tenstorrent.modelhub import bundles
+
+    bundles._load_curated()  # a malformed shipped file would raise here
+
+
+def test_search_community_lists_only_curated_bundles_filtered_by_query(curated_catalog):
+    curated_catalog(("ns/Alpha-7B", ["p150"]), ("ns/beta", ["p150"]), ("other/alpha-2", ["p150"]))
+    assert [b.name for b in search_community()] == ["ns/Alpha-7B", "ns/beta", "other/alpha-2"]
+    assert [b.name for b in search_community(query="ALPHA")] == ["ns/Alpha-7B", "other/alpha-2"]
+    assert [b.name for b in search_community(limit=1)] == ["ns/Alpha-7B"]
+
+
+def test_curated_ids_are_lowercased(curated_catalog):
+    from tenstorrent.modelhub.bundles import curated_ids
+
+    curated_catalog(("NS/Mixed", ["p150"]))
+    assert curated_ids() == {"ns/mixed"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "schema_version = 2\n",
+        "schema_version = 1\n[[bundle]]\nrepo = 'not-a-repo-id'\n",
+        "schema_version = [\n",
+    ],
+    ids=["schema", "repo-id", "toml"],
+)
+def test_a_malformed_community_catalog_is_a_config_error(tmp_path, monkeypatch, text):
+    from tenstorrent.errors import ExitCode, TTError
+    from tenstorrent.modelhub.bundles import curated_ids
+
+    path = tmp_path / "catalog.toml"
+    path.write_text(text)
+    monkeypatch.setenv("TT_COMMUNITY_CATALOG_PATH", str(path))
+    with pytest.raises(TTError) as err:
+        curated_ids()
+    assert err.value.exit_code == ExitCode.CONFIG
+
+
+def test_a_missing_community_catalog_override_is_a_config_error(tmp_path, monkeypatch):
+    from tenstorrent.errors import ExitCode, TTError
+    from tenstorrent.modelhub.bundles import curated_ids
+
+    monkeypatch.setenv("TT_COMMUNITY_CATALOG_PATH", str(tmp_path / "absent.toml"))
+    with pytest.raises(TTError) as err:
+        curated_ids()
+    assert err.value.exit_code == ExitCode.CONFIG

@@ -1,0 +1,223 @@
+# Community bundles `tt model list --community` shows: those that passed the
+# QuietBox 2 validation sweep of 2026-09-25/26, or were validated separately.
+#
+# TEMPORARY: a hand-curated list while the verification process is built. Once
+# it ships, the listing goes back to the Hub (bundles._listed_repos) and this
+# file is deprecated.
+#
+# Bundles not listed here can still be served; `tt serve` warns that they are
+# not in the catalog.
+#
+# `tags` use the Hub tag vocabulary `tt-model push` writes, so a row classifies
+# the same way a Hub listing would. Include a board/mesh tag ("p150x4"):
+# without one, listing fetches the bundle's manifest from the Hub.
+#
+#   [[bundle]]
+#   repo = "namespace/name"
+#   tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150x4"]
+
+schema_version = 1
+
+[[bundle]]
+repo = "Adartras/qwen3.6-a3b-blackhole"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150"]
+
+[[bundle]]
+repo = "anirud/devstral-small-2-24b-instruct-2512"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150x4", "p300", "p300x2"]
+
+[[bundle]]
+repo = "changh95/Alpamayo2-Super-p300x2"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/depth-anything-3-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/gaze-lle-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/GR00T-N1.5-3B-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/GR00T-N1.6-3B-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/GR00T-N1.7-3B-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/hamer-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/locate-anything-3b-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/mast3r-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/moge-2-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/qwen-image-2.1-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/qwen3.8-27b-dflash2-p300x2"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p300x2"]
+
+[[bundle]]
+repo = "changh95/qwen3.8-27b-p150x2"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150x2"]
+
+[[bundle]]
+repo = "changh95/qwen3.8-27b-p300x2"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p300x2"]
+
+[[bundle]]
+repo = "changh95/rf-detr-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/RLDX-1-PT-IMG-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/RLDX-1-PT-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/sam3-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/superpoint-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/vggt-1b-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "changh95/xvla-base-p150"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "jashansinghTT/kimi-linear-48b-a3b-instruct-blackhole"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p300", "p300x2"]
+
+[[bundle]]
+repo = "jashansinghTT/minimax-music3-blackhole"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150"]
+
+[[bundle]]
+repo = "jashansinghTT/olmo-3.1-32b-instruct-blackhole"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150", "p300", "p300x2"]
+
+[[bundle]]
+repo = "jashansinghTT/s2-pro-blackhole"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150", "p300", "p300x2", "p300x4"]
+
+[[bundle]]
+repo = "mando2222/laguna-s-2.1-v51"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150x4"]
+
+[[bundle]]
+repo = "mando2222/llama-3.2-3b-blackhole-v51"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150"]
+
+[[bundle]]
+repo = "mando2222/qwen3-32b-blackhole-v51"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150x4"]
+
+[[bundle]]
+repo = "mando2222/qwen3.8-27b-dflash2-p300x2-q4kv"
+tags = ["vllm-plugin", "blackhole", "p300x2"]
+
+[[bundle]]
+repo = "mando2222/vibethinker-3b-blackhole-v51"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150"]
+
+[[bundle]]
+repo = "ndaly/Mistral-Small-4-119B-2603-tt-p300x2"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p300x2"]
+
+[[bundle]]
+repo = "ndaly/Nemotron-3.5-Lightning-30B-A3B-NVFP4-tt-p300x2-vllm026"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p300x2"]
+
+[[bundle]]
+repo = "raahemnabeel/ornith-1.5-35b-a3b"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150", "p300x2"]
+
+[[bundle]]
+repo = "raahemnabeel/qwen3-coder-30b-a3b"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150x4", "p300x2"]
+
+[[bundle]]
+repo = "sjettTT/qwen3.8-flash-next_p150x4"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p150x4", "p300x2"]
+
+[[bundle]]
+repo = "stisiTT/flux2-dev-qb2"
+tags = ["tt-model-container", "tt-dit-server", "blackhole", "p300x2"]
+
+[[bundle]]
+repo = "stisiTT/gemma-4-12b-it-p150"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150"]
+
+[[bundle]]
+repo = "stisiTT/llama-3.2-3b-blackhole-v51"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150"]
+
+[[bundle]]
+repo = "stisiTT/smollm2-135m-instruct-p150"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150"]
+
+[[bundle]]
+repo = "tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150", "p150x2", "p150x4"]
+
+[[bundle]]
+repo = "tt-hous/gpt-oss-120b-p150x4"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150x4"]
+
+[[bundle]]
+repo = "tt-hous/gpt-oss-20b-p150"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150", "p150x2"]
+
+[[bundle]]
+repo = "tt-hous/laguna-xs-2.1"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150x2", "p150x4"]
+
+[[bundle]]
+repo = "tt-hous/muse-glimmer-30b"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p300x2"]
+
+[[bundle]]
+repo = "tt-hous/ornith-1.0-35b-p150"
+tags = ["tt-model-container", "blackhole", "p150", "p150x2", "p150x4"]
+
+[[bundle]]
+repo = "tt-hous/ornith-1.5-9b"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150", "p150x2", "p150x4"]
+
+[[bundle]]
+repo = "tt-hous/qwen3.6-27b-p150x4"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150x4"]
+
+[[bundle]]
+repo = "tt-hous/qwen3.8-27b-p150x4"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p150x4"]
+
+[[bundle]]
+repo = "tt-hous/qwen3.8-flash-next-p300x2"
+tags = ["tt-model-container", "vllm-plugin", "blackhole", "p300x2"]
