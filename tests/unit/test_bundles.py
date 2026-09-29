@@ -347,3 +347,14 @@ def test_search_unverified_is_a_tt_error_when_the_hub_is_unreachable(
     monkeypatch.setattr("huggingface_hub.HfApi.list_models", boom)
     with pytest.raises(TTError, match="Could not reach the Hugging Face Hub"):
         bundles.search_unverified()
+
+
+def test_search_unverified_limit_counts_only_unverified_bundles(curated_catalog, monkeypatch):
+    """Verified rows are filtered out after the Hub applies its limit, so they must
+    not use up slots the unverified rows need."""
+    curated_catalog("ns/v1", "ns/v2")
+    hub = [_HubRepo(f"ns/{name}", ["p150"]) for name in ("v1", "v2", "u1", "u2", "u3")]
+    monkeypatch.setattr(
+        "huggingface_hub.HfApi.list_models", lambda self, limit, **kw: iter(hub[:limit])
+    )
+    assert [b.name for b in bundles.search_unverified(limit=2)] == ["ns/u1", "ns/u2"]

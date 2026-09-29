@@ -641,13 +641,18 @@ def _serve_with_tt_model_manager(
     try:
         verified = model.lower() in bundles.curated_ids()
     except TTError as err:
-        appctx.output.warn(f"could not check the community catalog ({err.what}).")
-        verified = True
-    if not verified:
+        # Fail closed: an unreadable catalog must not skip the confirmation.
         appctx.output.warn(
-            f"{model} is not a verified community bundle "
-            "(`tt model list --include-unverified` shows which are)."
+            f"could not check the community catalog ({err.what}); "
+            f"treating {model} as unverified."
         )
+        verified = False
+    else:
+        if not verified:
+            appctx.output.warn(
+                f"{model} is not a verified community bundle "
+                "(`tt model list --include-unverified` shows which are)."
+            )
     if dry_run:
         plan = backend.plan(
             model, offline=offline, port=port, serve_flags=serve_flags, extra_args=extra_args

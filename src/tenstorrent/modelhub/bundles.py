@@ -599,9 +599,14 @@ def search_unverified(
     query: str | None = None,
     config: ConfigStore | None = None,
 ) -> list[BundleInfo]:
-    """Bundles in the Hub's community catalog that are not verified. Needs the Hub."""
+    """Bundles in the Hub's community catalog that are not verified. Needs the Hub.
+
+    Fetches `limit` more rows than there are verified bundles, so the verified
+    ones filtered out never take the unverified ones' place in the limit."""
     verified = curated_ids()
-    repos = [r for r in _hub_repos(query, limit) if r.id.lower() not in verified]
+    repos = [
+        r for r in _hub_repos(query, limit + len(verified)) if r.id.lower() not in verified
+    ][:limit]
     return _enrich(repos, verified=False, config=config)
 
 

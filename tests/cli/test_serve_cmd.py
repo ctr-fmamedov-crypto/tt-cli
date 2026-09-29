@@ -359,13 +359,18 @@ def test_serve_tt_model_does_not_warn_about_a_curated_bundle(
 
 
 @pytest.mark.fakes_only
-def test_serve_tt_model_still_serves_when_the_catalog_is_broken(
+def test_serve_tt_model_treats_a_broken_catalog_as_unverified(
     runner, fake_model_manager, tmp_path, monkeypatch, isolated_dirs
 ):
+    """Fail closed: a catalog that cannot be read must not skip the confirmation."""
     monkeypatch.setenv("TT_COMMUNITY_CATALOG_PATH", str(tmp_path / "absent.json"))
-    result = runner.invoke(app, ["serve", "ns/bundle"])
-    assert result.exit_code == 0, result.output
-    assert "could not check the community catalog" in result.output
+    refused = runner.invoke(app, ["serve", "ns/bundle"])
+    assert refused.exit_code == ExitCode.USAGE
+    assert "treating ns/bundle as unverified" in refused.output
+    assert _served(fake_model_manager) == []
+    confirmed = runner.invoke(app, ["serve", "ns/bundle", "--yes"])
+    assert confirmed.exit_code == 0, confirmed.output
+    assert _served(fake_model_manager) == [["serve", "ns/bundle"]]
 
 
 @pytest.mark.fakes_only
