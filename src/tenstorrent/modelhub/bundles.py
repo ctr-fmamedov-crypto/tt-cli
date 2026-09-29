@@ -22,9 +22,6 @@ from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
-import tomlkit
-from tomlkit.exceptions import ParseError
-
 from ..config.paths import get_paths
 from ..config.store import ConfigStore
 from ..errors import ExitCode, TTError
@@ -432,10 +429,13 @@ CURATED_PATH_ENV = "TT_COMMUNITY_CATALOG_PATH"
 
 @dataclass(frozen=True)
 class _ListedRepo:
-    """One community listing row, before enrichment — the fields a Hub ModelInfo has."""
+    """One community listing row, before install state and cached weights are added."""
 
     id: str
-    tags: list[str]
+    kind: str | None = None
+    engine: str | None = None
+    arch: list[str] = field(default_factory=list)
+    hardware: list[str] = field(default_factory=list)
     downloads: int | None = None
 
 
@@ -449,7 +449,10 @@ def _curated_error(origin: str, what: str, why: str | None = None) -> TTError:
 
 
 def _load_curated() -> list[_ListedRepo]:
-    """The bundled community_catalog.toml, or the file CURATED_PATH_ENV names."""
+    """The bundled community_catalog.json, or the file CURATED_PATH_ENV names.
+
+    The file is generated and validated by scripts/build_community_catalog.py,
+    so this is a plain read."""
     override = os.environ.get(CURATED_PATH_ENV)
     if override:
         path = Path(override)
@@ -461,21 +464,27 @@ def _load_curated() -> list[_ListedRepo]:
             )
         text, origin = path.read_text(), str(path)
     else:
-        text = (resources.files("tenstorrent.modelhub") / "community_catalog.toml").read_text()
-        origin = "bundled community_catalog.toml"
+        text = (resources.files("tenstorrent.modelhub") / "community_catalog.json").read_text()
+        origin = "bundled community_catalog.json"
     try:
-        doc = tomlkit.parse(text).unwrap()
-    except ParseError as exc:
-        raise _curated_error(origin, "is not valid TOML.", why=str(exc)) from exc
-    if doc.get("schema_version") != CURATED_SCHEMA_VERSION:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise _curated_error(origin, "is not valid JSON.", why=str(exc)) from exc
+    if not isinstance(doc, dict) or doc.get("schema_version") != CURATED_SCHEMA_VERSION:
         raise _curated_error(origin, "has unsupported schema_version.")
-    repos = []
-    for raw in doc.get("bundle") or []:
-        repo = str(raw.get("repo", "")).strip()
-        if repo.count("/") != 1 or not all(repo.split("/")):
-            raise _curated_error(origin, f"lists {repo!r}, which is not a namespace/name repo id.")
-        repos.append(_ListedRepo(id=repo, tags=[str(t).lower() for t in raw.get("tags") or []]))
-    return repos
+    try:
+        return [
+            _ListedRepo(
+                id=str(raw["repo"]),
+                kind=raw.get("kind"),
+                engine=raw.get("engine"),
+                arch=[raw["arch"]] if raw.get("arch") else [],
+                hardware=list(raw.get("hardware") or []),
+            )
+            for raw in doc.get("bundles") or []
+        ]
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise _curated_error(origin, "has a malformed bundle entry.", why=repr(exc)) from exc
 
 
 def curated_ids() -> set[str]:
@@ -487,8 +496,9 @@ def _listed_repos(query: str | None, limit: int) -> list[_ListedRepo]:
     """The repos the community listing shows, filtered by `query` (substring of
     the id, as the Hub's `search` matches).
 
-    Temporary: read from the curated file until whitelisting ships, then this
-    goes back to a Hub query (e.g. the tenstorrent org's bundles)."""
+    Temporary: read from the curated catalog until whitelisting ships, then this
+    goes back to a Hub query (e.g. the tenstorrent org's bundles), building the
+    same rows from repo tags with _classify."""
     wanted = (query or "").lower()
     return [repo for repo in _load_curated() if wanted in repo.id.lower()][:limit]
 
@@ -503,14 +513,13 @@ def search_community(
     merged listing. `config` enables the weights-cache lookup for installed
     bundles (it resolves the HF cache root).
 
-    A listed bundle with no hardware tag that was never pulled costs one Hub
-    fetch (see hardware_from_hub_manifest)."""
+    A listed bundle with no hardware that was never pulled costs one Hub fetch
+    (see hardware_from_hub_manifest)."""
     installed = installed_bundles()
     sizes = hub.cached_sizes(config) if config is not None else None
     bundles = []
     for repo in _listed_repos(query, limit):
-        repo_id = repo.id
-        kind, engine, arch, hardware = _classify(repo.tags)
+        repo_id, engine, hardware = repo.id, repo.engine, repo.hardware
         entry = installed.get(repo_id.lower())
         weights_repo = weights_bytes = None
         if entry is not None:
@@ -526,9 +535,9 @@ def search_community(
         bundles.append(
             BundleInfo(
                 name=repo_id,
-                kind=kind,
+                kind=repo.kind,
                 engine=engine,
-                arch=arch,
+                arch=repo.arch,
                 hardware=hardware,
                 downloads=repo.downloads,
                 installed=entry is not None,

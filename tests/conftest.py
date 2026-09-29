@@ -287,14 +287,13 @@ def runner():
 
 @pytest.fixture
 def curated_catalog(tmp_path, monkeypatch):
-    """Write a community catalog of `(repo, tags)` pairs and point tt at it."""
+    """Write a community_catalog.json of bundles (repo ids, or dicts of its
+    fields) and point tt at it."""
 
-    def write(*repos: tuple[str, list[str]]) -> Path:
-        lines = ["schema_version = 1"]
-        for repo, tags in repos:
-            lines += ["", "[[bundle]]", f"repo = {json.dumps(repo)}", f"tags = {json.dumps(tags)}"]
-        path = tmp_path / "community_catalog.toml"
-        path.write_text("\n".join(lines) + "\n")
+    def write(*bundles: str | dict) -> Path:
+        rows = [{"repo": b} if isinstance(b, str) else b for b in bundles]
+        path = tmp_path / "community_catalog.json"
+        path.write_text(json.dumps({"schema_version": 1, "bundles": rows}))
         monkeypatch.setenv("TT_COMMUNITY_CATALOG_PATH", str(path))
         return path
 

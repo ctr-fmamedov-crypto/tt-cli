@@ -376,7 +376,7 @@ def test_the_manifest_wins_when_a_tag_disagrees(tmp_path, curated_catalog, monke
     )
     (root / "installed.json").write_text(json.dumps({"ns/dit": {"repo_id": "ns/dit"}}))
 
-    curated_catalog(("ns/dit", ["blackhole", "vllm-plugin"]))  # stale card says vLLM
+    curated_catalog({"repo": "ns/dit", "engine": "vllm-plugin"})  # stale entry says vLLM
     (found,) = bundles.search_community()
     assert found.engine == "tt-dit-server"
 
