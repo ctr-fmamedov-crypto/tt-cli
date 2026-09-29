@@ -482,3 +482,98 @@ def test_describe_is_none_for_an_unknown_id(monkeypatch):
 
     _stub_sources(monkeypatch)
     assert bundles.describe("ns/absent") is None
+
+
+# -- verified: the Tenstorrent org is the reviewed set --------------------------
+
+
+@pytest.mark.parametrize(
+    ("repo_id", "expected"),
+    [
+        ("Tenstorrent/Qwen3-32B", True),
+        ("tenstorrent/qwen3-32b", True),  # the install index lowercases its keys
+        ("tenstorrent-labs/foo", False),  # a namespace match, not a prefix match
+        ("someauthor/Tenstorrent", False),
+        ("someauthor/foo", False),
+    ],
+)
+def test_is_verified_is_a_namespace_test(repo_id, expected):
+    from tenstorrent.modelhub import bundles
+
+    assert bundles.is_verified(repo_id) is expected
+
+
+def test_bundle_verified_is_derived_from_the_name_not_passed_in():
+    from tenstorrent.modelhub.bundles import BundleInfo
+
+    assert BundleInfo(name="Tenstorrent/foo").verified is True
+    assert BundleInfo(name="someauthor/foo").verified is False
+    with pytest.raises(TypeError):
+        BundleInfo(name="someauthor/foo", verified=True)
+
+
+def _hub_listing(monkeypatch, tmp_path, repos):
+    """Serve `repos` as the Hub listing, recording the list_models kwargs."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))  # no real install index
+    seen = {}
+
+    def list_models(self, **kw):
+        seen.update(kw)
+        return iter(repos)
+
+    monkeypatch.setattr("huggingface_hub.HfApi.list_models", list_models)
+    return seen
+
+
+def _repo(repo_id, card_data=None):
+    class _Repo:
+        id = repo_id
+        tags = ["blackhole", "p150"]  # tagged, so no per-repo manifest fetch
+        downloads = 0
+
+    _Repo.card_data = card_data
+    return _Repo()
+
+
+def test_search_community_reads_a_copys_source_off_the_same_request(
+    tmp_path, monkeypatch
+):
+    from tenstorrent.modelhub import bundles
+
+    seen = _hub_listing(monkeypatch, tmp_path, [
+        _repo("Tenstorrent/Qwen3-32B", {bundles.VERIFIED_SOURCE_KEY: "someauthor/foo"}),
+        _repo("someauthor/foo"),
+    ])
+    found = {b.name: b for b in bundles.search_community()}
+    assert seen["cardData"] is True
+    assert found["Tenstorrent/Qwen3-32B"].copy_of == "someauthor/foo"
+    assert found["Tenstorrent/Qwen3-32B"].verified is True
+    # the original is kept, unverified, next to its copy
+    assert found["someauthor/foo"].verified is False
+    assert found["someauthor/foo"].copy_of is None
+
+
+def test_search_community_ignores_a_source_claim_outside_the_org(tmp_path, monkeypatch):
+    """Anyone can write the key into their own card; only a Tenstorrent repo may
+    claim to be a reviewed copy of something."""
+    from tenstorrent.modelhub import bundles
+
+    _hub_listing(monkeypatch, tmp_path, [
+        _repo("someauthor/foo", {bundles.VERIFIED_SOURCE_KEY: "microsoft/phi-4"}),
+    ])
+    (found,) = bundles.search_community()
+    assert found.copy_of is None
+
+
+@pytest.mark.parametrize(
+    "raw", [["a/b"], {"id": "a/b"}, "https://huggingface.co/a/b", "a", "a/", " "]
+)
+def test_search_community_drops_a_malformed_source(tmp_path, monkeypatch, raw):
+    from tenstorrent.modelhub import bundles
+
+    _hub_listing(monkeypatch, tmp_path, [
+        _repo("Tenstorrent/foo", {bundles.VERIFIED_SOURCE_KEY: raw}),
+    ])
+    (found,) = bundles.search_community()
+    assert found.verified is True  # still verified; just no usable link to the original
+    assert found.copy_of is None

@@ -90,7 +90,7 @@ to an upstream repository.
 
 By default the list shows only models that run on this machine's detected device
 configuration (via tt-smi) — a model marked as failing on that board is hidden,
-and `tt model info` says why. `--all` shows every model on every device, and
+and `tt model info` says why. `--hw all` shows every model on every device, and
 `--hw <device>` filters to a specific configuration without touching the hardware.
 Model names are the spec's short ids (`Llama-3.1-8B-Instruct`); the HuggingFace repo id
 works as an alias everywhere a name is accepted. Every engine is servable —
@@ -99,12 +99,12 @@ works as an alias everywhere a name is accepted. Every engine is servable —
 ## Community bundles
 
 `tt model list` shows two sources side by side: the released catalog
-(tt-inference-server) and community bundles — models anyone has packaged with
+(tt-inference-server) and community bundles — models packaged with
 [tt-model-manager](https://github.com/tenstorrent/tt-model-manager) and
-published as HuggingFace repos. `tt model list --community` narrows to the
-bundles and `--catalog` to the released catalog. Tenstorrent does not test or
-maintain community bundles; reach for them when the catalog lacks the model you
-want. They are served by engines included in the repos themselves
+published as HuggingFace repos. By default only verified models are listed;
+`--unverified` adds every community bundle Tenstorrent has not reviewed. The
+`source` column says which is which. `--catalog` and `--community` still narrow
+to one source for this release, and are deprecated. They are served by engines included in the repos themselves
 (`vllm-plugin`, `tt-dit-server`, etc).
 `tt model pull
 <namespace>/<name>` installs one, and `tt serve <namespace>/<name>` serves it,
@@ -117,8 +117,8 @@ the loop; the mapping is one-to-one and tt shells out to the pinned `tt-model`:
 | `tt` | `tt-model` | Notes |
 |---|---|---|
 | `tt model search [Q] --catalog --arch --limit` | `search` | tt renders `tt-model search --json`; `--json` is tt's own contract, with `installed` added |
-| `tt model list --community` | `search --catalog` (+ `list`) | queried directly on the Hub, without installing tt-model |
-| `tt model list --community --cached` | `list` | installed bundles, from tt-model's own index |
+| `tt model list --unverified` | `search --catalog` (+ `list`) | queried directly on the Hub, without installing tt-model |
+| `tt model list --cached --unverified` | `list` | installed bundles, from tt-model's own index |
 | `tt model info NS/NAME` | `info` | |
 | `tt model pull NS/NAME [--force] [--no-weights]` | `pull [--force] [--with-weights]` | tt asks for the weights by default; tt-model does not |
 | `tt model profiles NS/NAME` | `profiles` | `--json` reads the pulled manifest instead |
@@ -134,6 +134,13 @@ the loop; the mapping is one-to-one and tt shells out to the pinned `tt-model`:
 Verbs that inspect or tear down (`profiles`, `curl`, `stop`, `rm`) never install
 tt-model; the ones that need the Hub anyway (`search`, `pull`, `serve`, `login`,
 `publish`) install the pinned version first if `tt update` has not.
+
+Verified means the released catalog, or a bundle in the `Tenstorrent` org
+(`VERIFIED_ORG` in `modelhub/bundles.py`), so the repo id alone decides it, offline and
+for local installs too. A copy's card names the bundle it came from
+(`VERIFIED_SOURCE_KEY`, read via `cardData=True` on the existing listing request) and
+`--json` reports it as `copy_of`; that claim is ignored on any repo outside the org.
+The original is kept, as unverified.
 
 `tt model pull` also accepts an ordinary HuggingFace repo id, fetching its weights
 into the same cache — useful to pre-warm before serving — with a warning that
@@ -153,7 +160,7 @@ weights alone do not make a model servable.
 | `TT_NO_UPDATE_CHECK` | Skip the daily "newer tt available?" lookup for this run (`tt config set update.check false` to turn it off for good) |
 | `TT_UPDATE_CHECK_URL` | Where that lookup reads PyPI-shaped project JSON from (URL or local file; default `https://pypi.org/pypi/tenstorrent/json`) |
 | `HF_HOME` | Weights cache root when `paths.hf_model_cache_directory` is unset; exported to tt-model and passed to tt-inference-server so every tool shares one cache |
-| `XDG_CACHE_HOME` | Where tt-model keeps its installed-bundle index (`$XDG_CACHE_HOME/tt-model`), which `tt model list --community` reads |
+| `XDG_CACHE_HOME` | Where tt-model keeps its installed-bundle index (`$XDG_CACHE_HOME/tt-model`), which `tt model list` reads |
 | `VISUAL` / `EDITOR` | Editor opened by bare `tt config` |
 
 Telemetry has its own set of variables (`TT_TELEMETRY_*`, `DO_NOT_TRACK`) — see

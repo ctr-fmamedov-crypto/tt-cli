@@ -48,8 +48,8 @@ This is not an exhaustive list. For the full list of commands and options in eac
 
 | Model serving | Functionality |
 |---|---|
-| `tt model list` | Models that run on this machine's detected hardware, from two sources: the released catalog (models Tenstorrent ships and tests via tt-inference-server) and community bundles (`--all` for every device; `--cached`, `--type`, `--hw` filters) |
-| `tt model list --catalog` / `--community` | Narrow to one source: `--catalog` for the released catalog only; `--community` for bundles anyone has published with tt-model-manager on the Hugging Face Hub, not tested or maintained by Tenstorrent (served with `tt serve <namespace>/<name>`); `--community --cached` for the ones installed here |
+| `tt model list` | Verified models that run on this machine's detected hardware: the released catalog (models Tenstorrent ships and tests via tt-inference-server) and community bundles Tenstorrent has reviewed (`--hw all` for every device; `--cached`, `--type`, `--hw` filters) |
+| `tt model list --unverified` | Also list unverified models: every community bundle anyone has published, which Tenstorrent has not reviewed (served with `tt serve <namespace>/<name>`; `--cached --unverified` for the ones installed here) |
 | `tt model search [QUERY]` | Search the Hub for published tt-model bundles (`--catalog` for community-catalog listings only; `--arch`, `--limit`) |
 | `tt model info NAME` | Model metadata: engines, per-device support/status, requirements, cache state; for a tt-model bundle id, its manifest and compatibility verdict (or catalog row) |
 | `tt model pull NAME` | Download a catalog model's weights, a tt-model bundle, or any HuggingFace repo's weights (`--bundle` / `--weights-only` override detection; `--offline`; bundles: `--force`, `--no-weights`) |

@@ -35,6 +35,22 @@ from . import hub
 # rather than an error.
 CATALOG_TAG = "tt-model-catalog"  # opted into the community catalog
 BUNDLE_TAG = "tt-model-cache"  # any published bundle
+
+# Verified bundles live in this HF org: tt-model-manager copies a reviewed community
+# bundle into it, and only Tenstorrent can write there, so the repo id alone says
+# whether a bundle is verified. Mirrors `TT_ORG` in tt-model-manager.
+VERIFIED_ORG = "Tenstorrent"
+
+# Frontmatter key on a copy naming the community bundle it was made from. Mirrors
+# `VERIFIED_SOURCE_KEY` in tt-model-manager's hub.py.
+VERIFIED_SOURCE_KEY = "tt_verified_source"
+
+
+def is_verified(repo_id: str) -> bool:
+    """Whether a repo id is in the Tenstorrent org. Case-insensitive because the
+    install index lowercases its keys."""
+    return repo_id.split("/", 1)[0].lower() == VERIFIED_ORG.lower()
+
 _KIND_TAGS = {
     "tt-model-container": "container",
     "self-contained": "self-contained",
@@ -181,6 +197,13 @@ class BundleInfo:
     # without a per-repo Hub fetch this listing deliberately avoids).
     weights_repo: str | None = None
     weights_bytes: int | None = None
+    # Derived from `name`, so the table and --json cannot disagree.
+    verified: bool = field(init=False, default=False)
+    # On a Tenstorrent copy, the community bundle it was copied from; None otherwise.
+    copy_of: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "verified", is_verified(self.name))
 
 
 def _cache_root() -> Path:
@@ -447,7 +470,9 @@ def search_community(
 
     try:
         found = list(
-            HfApi().list_models(filter=CATALOG_TAG, search=query or None, limit=limit)
+            HfApi().list_models(
+                filter=CATALOG_TAG, search=query or None, limit=limit, cardData=True
+            )
         )
     except (HfHubHTTPError, OSError) as exc:
         raise TTError(
@@ -488,9 +513,26 @@ def search_community(
                 installed=entry is not None,
                 weights_repo=weights_repo,
                 weights_bytes=weights_bytes,
+                copy_of=_copy_of(repo_id, getattr(repo, "card_data", None)),
             )
         )
     return bundles
+
+
+def _copy_of(repo_id: str, card_data) -> str | None:
+    """The `namespace/name` a Tenstorrent copy says it came from, or None.
+
+    Ignored outside the Tenstorrent org: anyone can write this key into their own
+    card, so only a repo authors cannot write may claim to be a copy of something.
+    """
+    if not is_verified(repo_id) or not hasattr(card_data, "get"):
+        return None
+    raw = card_data.get(VERIFIED_SOURCE_KEY)
+    if not isinstance(raw, str):
+        return None
+    source = raw.strip()
+    parts = source.split("/")
+    return source if len(parts) == 2 and all(parts) else None
 
 
 def describe(
@@ -549,7 +591,7 @@ def add_to_community_cache(names: list[str]) -> None:
 
 
 def cached_community_names() -> list[str]:
-    """Repo ids from the last `tt model list --community`; [] before the first run
+    """Repo ids from the last `tt model list`; [] before the first run
     (or on a corrupt cache) — fewer completions, never an error."""
     try:
         data = json.loads(_community_cache_file().read_text())

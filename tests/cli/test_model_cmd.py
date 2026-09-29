@@ -80,7 +80,7 @@ def test_model_list_keeps_every_name_whole_on_a_narrow_terminal(runner, monkeypa
     the one value you paste into `tt serve`. Names now fold across lines instead:
     a narrow terminal costs height, never characters."""
     monkeypatch.setenv("COLUMNS", "40")
-    result = runner.invoke(app, ["model", "list", "--all"])
+    result = runner.invoke(app, ["model", "list", "--hw", "all"])
     assert result.exit_code == 0, result.output
     assert "…" not in result.output
     names = _column(result.output, 0)
@@ -123,7 +123,7 @@ def test_model_list_filters_to_detected_device(
 @pytest.mark.fakes_only
 def test_model_list_all_skips_detection(runner, smi_bin, monkeypatch):
     monkeypatch.setenv("FAKE_SMI_SCENARIO", "normal")
-    result = runner.invoke(app, ["model", "list", "--all", "--json"])
+    result = runner.invoke(app, ["model", "list", "--hw", "all", "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["device"] is None
@@ -147,7 +147,7 @@ def test_model_list_hides_a_model_marked_broken_on_that_device(runner):
     on_board = runner.invoke(app, ["model", "list", "--hw", "p300x2", "--json"])
     assert "whisper-large-v3" not in on_board.output
     assert "whisper-large-v3" in runner.invoke(app, ["model", "list", "--hw", "n150"]).output
-    assert "whisper-large-v3" in runner.invoke(app, ["model", "list", "--all"]).output
+    assert "whisper-large-v3" in runner.invoke(app, ["model", "list", "--hw", "all"]).output
 
 
 def test_model_list_hw_filter_skips_detection(runner):
@@ -162,7 +162,7 @@ def test_model_list_hw_filter_skips_detection(runner):
 
 def test_model_list_json_and_cache_merge(runner, monkeypatch):
     _set_cache(monkeypatch, {"openai/whisper-large-v3": 2_200_000_000})
-    result = runner.invoke(app, ["model", "list", "--all", "--json"])
+    result = runner.invoke(app, ["model", "list", "--hw", "all", "--json"])
     assert result.exit_code == 0
     models = {m["name"]: m for m in json.loads(result.output)["models"]}
     assert models["whisper-large-v3"]["cached"] is True
@@ -199,7 +199,7 @@ def test_model_list_drops_a_catalog_profile_superseded_by_a_smaller_one(
         }],
     }))
     monkeypatch.setenv("TT_MODEL_SUPPORT_PATH", str(support))
-    result = runner.invoke(app, ["model", "list", "--all", "--json"])
+    result = runner.invoke(app, ["model", "list", "--hw", "all", "--json"])
     payload = json.loads(result.output)
     row = next(m for m in payload["models"] if m["name"] == "tts-demo")
     assert row["hardware"] == ["p150"]
@@ -209,7 +209,7 @@ def test_model_list_keeps_catalog_profiles_with_their_own_tuning(runner):
     """Llama's p300 and p300x2 share a max_context but ship their own
     trace_region_size — real, distinct integrations, not a duplicate listing,
     so neither is dropped just because a smaller board exists."""
-    result = runner.invoke(app, ["model", "list", "--all", "--json"])
+    result = runner.invoke(app, ["model", "list", "--hw", "all", "--json"])
     payload = json.loads(result.output)
     llama = next(m for m in payload["models"] if m["name"] == "Llama-3.1-8B-Instruct")
     assert llama["hardware"] == ["n150", "p150x4", "p300", "p300x2"]
@@ -217,12 +217,12 @@ def test_model_list_keeps_catalog_profiles_with_their_own_tuning(runner):
 
 def test_model_list_cached_filter(runner, monkeypatch):
     _set_cache(monkeypatch, {"openai/whisper-large-v3": 1})
-    result = runner.invoke(app, ["model", "list", "--all", "--cached", "--json"])
+    result = runner.invoke(app, ["model", "list", "--hw", "all", "--cached", "--json"])
     assert _names(result) == ["whisper-large-v3"]
 
 
 def test_model_list_type_and_hw_filters(runner):
-    result = runner.invoke(app, ["model", "list", "--all", "--type", "audio", "--json"])
+    result = runner.invoke(app, ["model", "list", "--hw", "all", "--type", "audio", "--json"])
     assert _names(result) == ["whisper-large-v3"]
     result = runner.invoke(app, ["model", "list", "--hw", "p300", "--json"])
     assert _names(result) == ["Llama-3.1-8B-Instruct"]
@@ -933,7 +933,7 @@ def test_model_list_shows_catalog_and_community_together(
         {"name": "ns/beta", "kind": "thin", "engine": "vLLM",
          "arch": ["wormhole_b0", "1x4"], "hardware": ["n300"], "installed": False},
     ])
-    result = runner.invoke(app, ["model", "list", "--all"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--hw", "all"])
     assert result.exit_code == 0, result.output
     assert "ns/alpha" in result.output and "ns/beta" in result.output
     assert "Qwen3-32B" in result.output  # a catalog model, alongside the bundles
@@ -945,6 +945,7 @@ def test_model_list_shows_catalog_and_community_together(
         "engine",
         "serving profiles",
         "weights",
+        "status",
     ]
 
 
@@ -957,7 +958,7 @@ def test_model_list_keeps_every_name_whole_on_a_narrow_terminal(
          "installed": False},
     ])
     monkeypatch.setenv("COLUMNS", "40")
-    result = runner.invoke(app, ["model", "list", "--community", "--all"])
+    result = runner.invoke(app, ["model", "list", "--hw", "all"])
     assert result.exit_code == 0, result.output
     assert "…" not in result.output
     assert "tenstorrent/Llama-3.1-70B-Instruct-vllm-bundle" in _column(result.output, 0)
@@ -986,7 +987,7 @@ def test_model_list_json_contract_includes_community_rows(
         {"name": "ns/alpha", "kind": "container", "engine": "vLLM",
          "arch": ["blackhole"], "downloads": 3, "installed": True},
     ])
-    result = runner.invoke(app, ["model", "list", "--all", "--json"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--hw", "all", "--json"])
     payload = _json_payload(result.output)
     row = next(m for m in payload["models"] if m["name"] == "ns/alpha")
     assert row["source"] == "HuggingFace"
@@ -1003,7 +1004,7 @@ def test_model_list_normalizes_the_vllm_plugin_engine_name(
     _stub_bundles(monkeypatch, [
         {"name": "ns/alpha", "engine": "vllm-plugin", "installed": False},
     ])
-    result = runner.invoke(app, ["model", "list"])
+    result = runner.invoke(app, ["model", "list", "--unverified"])
     assert result.exit_code == 0, result.output
     row = next(
         line for line in result.output.splitlines()
@@ -1020,7 +1021,7 @@ def test_model_list_json_keeps_the_raw_engine_tag(
     _stub_bundles(monkeypatch, [
         {"name": "ns/alpha", "engine": "vllm-plugin", "installed": False},
     ])
-    result = runner.invoke(app, ["model", "list", "--json"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--json"])
     payload = _json_payload(result.output)
     row = next(m for m in payload["models"] if m["name"] == "ns/alpha")
     assert row["engines"] == ["vllm-plugin"]
@@ -1036,7 +1037,7 @@ def test_model_list_cached_filters_community_to_installed(
         {"name": "ns/beta", "installed": False},
     ])
     _stub_local(monkeypatch, [{"name": "ns/alpha"}])
-    result = runner.invoke(app, ["model", "list", "--all", "--cached", "--json"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--hw", "all", "--cached", "--json"])
     payload = _json_payload(result.output)
     community = [
         (m["name"], m["source"]) for m in payload["models"] if m["source"] != "tt-inference-server"
@@ -1055,7 +1056,7 @@ def test_model_list_defaults_to_this_machines_detected_hardware(
         {"name": "ns/fits", "arch": ["blackhole"], "hardware": ["p150"]},
         {"name": "ns/too-big", "arch": ["blackhole"], "hardware": ["p300x2"]},
     ])
-    result = runner.invoke(app, ["model", "list", "--json"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--json"])
     assert result.exit_code == 0, result.output
     assert _community_names(json.loads(result.output)) == {"ns/fits"}
 
@@ -1067,7 +1068,7 @@ def test_model_list_all_skips_detection(runner, smi_bin, monkeypatch, isolated_d
         {"name": "ns/fits", "arch": ["blackhole"], "hardware": ["p150"]},
         {"name": "ns/too-big", "arch": ["blackhole"], "hardware": ["p300x2"]},
     ])
-    result = runner.invoke(app, ["model", "list", "--all", "--json"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--hw", "all", "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert _community_names(payload) == {"ns/fits", "ns/too-big"}
@@ -1083,7 +1084,7 @@ def test_model_list_with_no_detection_tool_shows_everything(
     _stub_bundles(monkeypatch, [
         {"name": "ns/alpha", "arch": ["blackhole"], "hardware": ["p150"]},
     ])
-    result = runner.invoke(app, ["model", "list"])
+    result = runner.invoke(app, ["model", "list", "--unverified"])
     assert result.exit_code == 0, result.output
     assert "device detection skipped" in result.output
     assert "ns/alpha" in result.output
@@ -1101,7 +1102,7 @@ def test_model_list_hw_matches_a_bundle_needing_no_more_chips(
         {"name": "ns/wrong-arch", "arch": ["wormhole_b0"], "hardware": ["n150"]},
         {"name": "ns/untagged", "arch": ["blackhole"]},
     ])
-    result = runner.invoke(app, ["model", "list", "--hw", "p300", "--json"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--hw", "p300", "--json"])
     assert result.exit_code == 0, result.output
     assert _community_names(json.loads(result.output)) == {"ns/fits", "ns/exact"}
 
@@ -1130,7 +1131,7 @@ def _hardware_cell_by_name(output: str) -> dict[str, str]:
     for line in output.splitlines():
         if line.startswith("│") and "ns/" in line:
             cells = [c.strip() for c in line.strip("│").split("│")]
-            rows[cells[0]] = cells[-2]  # profiles is second-to-last column
+            rows[cells[0]] = cells[3]  # serving profiles
     return rows
 
 
@@ -1145,7 +1146,7 @@ def test_model_list_hw_shows_every_satisfying_tag(
         {"name": "ns/multi", "arch": ["blackhole"], "hardware": ["p150", "p150x4"]},
         {"name": "ns/small-only", "arch": ["blackhole"], "hardware": ["p150"]},
     ])
-    result = runner.invoke(app, ["model", "list", "--hw", "p150x4"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--hw", "p150x4"])
     assert result.exit_code == 0, result.output
     rows = _hardware_cell_by_name(result.output)
     assert rows["ns/multi"] == "p150, p150x4"
@@ -1165,7 +1166,7 @@ def test_model_list_hw_shows_an_equivalent_board_alongside_a_subset(
          "hardware": ["p150", "p150x4", "p300x2"]},
         {"name": "ns/subset-only", "arch": ["blackhole"], "hardware": ["p150", "p150x2"]},
     ])
-    result = runner.invoke(app, ["model", "list", "--hw", "p300x2"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--hw", "p300x2"])
     assert result.exit_code == 0, result.output
     rows = _hardware_cell_by_name(result.output)
     assert rows["ns/tagged-p150x4"] == "p150x4"
@@ -1175,7 +1176,7 @@ def test_model_list_hw_shows_an_equivalent_board_alongside_a_subset(
 
 def test_model_list_hw_is_case_insensitive(runner, monkeypatch, isolated_dirs):
     _stub_bundles(monkeypatch, [{"name": "ns/alpha", "hardware": ["p150x4"]}])
-    result = runner.invoke(app, ["model", "list", "--hw", "P150X4", "--json"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--hw", "P150X4", "--json"])
     assert _community_names(json.loads(result.output)) == {"ns/alpha"}
 
 
@@ -1192,9 +1193,9 @@ def test_model_list_detected_hardware_matches_the_equivalent_explicit_hw(
         {"name": "ns/multi", "arch": ["blackhole"],
          "hardware": ["p150", "p150x2", "p300x2"]},
     ])
-    detected = runner.invoke(app, ["model", "list"])
+    detected = runner.invoke(app, ["model", "list", "--unverified"])
     assert detected.exit_code == 0, detected.output
-    explicit = runner.invoke(app, ["model", "list", "--hw", "p300x2"])
+    explicit = runner.invoke(app, ["model", "list", "--unverified", "--hw", "p300x2"])
     assert explicit.exit_code == 0, explicit.output
     assert _hardware_cell_by_name(detected.output) == _hardware_cell_by_name(explicit.output)
     assert _hardware_cell_by_name(detected.output)["ns/multi"] == "p150, p150x2, p300x2"
@@ -1206,7 +1207,7 @@ def test_model_list_type_filter_drops_community_bundles(
     """Community bundles publish no model type, so --type simply excludes them —
     same outcome as any other filter they cannot match, no dedicated error."""
     _stub_bundles(monkeypatch, [{"name": "ns/alpha"}])
-    result = runner.invoke(app, ["model", "list", "--all", "--type", "llm", "--json"])
+    result = runner.invoke(app, ["model", "list", "--hw", "all", "--type", "llm", "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert _community_names(payload) == set()
@@ -1219,11 +1220,37 @@ def test_model_list_rejects_both_scope_flags(runner, isolated_dirs):
     assert "opposites" in result.output
 
 
+# --community, --catalog and --all are deprecated for one release: they still work,
+# and say what replaces them.
+@pytest.mark.parametrize(
+    ("flag", "replacement"),
+    [("--community", "--unverified"), ("--catalog", "--unverified"), ("--all", "--hw all")],
+)
+def test_model_list_deprecated_flags_still_work_and_say_so(
+    runner, monkeypatch, isolated_dirs, flag, replacement
+):
+    _stub_bundles(monkeypatch, [])
+    result = runner.invoke(app, ["model", "list", flag, "--hw", "all"])
+    assert result.exit_code == 0, result.output
+    assert f"{flag} is deprecated" in result.output
+    assert replacement in result.output
+
+
+@pytest.mark.fakes_only
+def test_model_list_hw_all_is_every_device(runner, smi_bin, monkeypatch, isolated_dirs):
+    monkeypatch.setenv("FAKE_SMI_SCENARIO", "normal")
+    _stub_bundles(monkeypatch, [])
+    result = runner.invoke(app, ["model", "list", "--hw", "ALL", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["device"] is None
+    assert smi_bin.exists() is False  # like --all, never shells tt-smi
+
+
 def test_model_list_community_only_skips_the_catalog(
     runner, monkeypatch, isolated_dirs
 ):
     _stub_bundles(monkeypatch, [{"name": "ns/alpha"}])
-    result = runner.invoke(app, ["model", "list", "--community", "--all", "--json"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--community", "--hw", "all", "--json"])
     assert result.exit_code == 0, result.output
     payload = _json_payload(result.output)
     assert payload["scope"] == "community"
@@ -1259,7 +1286,7 @@ def test_model_list_offline_shows_local_bundles_only(
         raise AssertionError("the Hub was queried under --offline")
 
     monkeypatch.setattr("tenstorrent.modelhub.bundles.search_community", boom)
-    result = runner.invoke(app, ["--offline", "model", "list"])
+    result = runner.invoke(app, ["--offline", "model", "list", "--unverified"])
     assert result.exit_code == 0, result.output
     assert "ns/local" in result.output
     assert "only community bundles installed on this machine" in result.output
@@ -1274,14 +1301,14 @@ def test_model_list_cached_cell_states(runner, monkeypatch, isolated_dirs):
         {"name": "ns/nocache", "installed": True, "weights_repo": "org/w2"},
         {"name": "ns/unpulled", "installed": False},
     ])
-    result = runner.invoke(app, ["model", "list"])
+    result = runner.invoke(app, ["model", "list", "--unverified"])
     assert result.exit_code == 0, result.output
     # last column is `cached`; compare that cell alone, not the whole row
     cached = {}
     for line in result.output.splitlines():
         if line.startswith("│") and "ns/" in line:
             cells = [c.strip() for c in line.strip("│").split("│")]
-            cached[cells[0]] = cells[-1]
+            cached[cells[0]] = cells[4]  # weights
     assert cached["ns/cached"] == "✓ 1.9 GB"
     assert cached["ns/nocache"] == "—"  # referenced, but not in the cache
     assert cached["ns/unpulled"] == "—"  # not pulled, so the reference is unknown
@@ -1302,7 +1329,7 @@ def test_model_list_includes_unpublished_local_bundles(
     catalog — it must still be listed, marked as local."""
     _stub_bundles(monkeypatch, [{"name": "ns/published"}])
     _stub_local(monkeypatch, [{"name": "someone/private", "kind": "container"}])
-    result = runner.invoke(app, ["model", "list", "--json"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--json"])
     assert result.exit_code == 0, result.output
     payload = _json_payload(result.output)
     rows = {
@@ -1318,7 +1345,7 @@ def test_model_list_lists_a_bundle_once_per_source(
     them to one row loses whichever one the merge did not pick."""
     _stub_bundles(monkeypatch, [{"name": "ns/both", "downloads": 7}])
     _stub_local(monkeypatch, [{"name": "ns/both"}])
-    result = runner.invoke(app, ["model", "list", "--json"])
+    result = runner.invoke(app, ["model", "list", "--unverified", "--json"])
     payload = [m for m in _json_payload(result.output)["models"] if m["name"] == "ns/both"]
     assert [m["source"] for m in payload] == ["HuggingFace", "local"]
     assert payload[0]["downloads"] == 7  # only the Hub publishes this
@@ -1327,7 +1354,7 @@ def test_model_list_lists_a_bundle_once_per_source(
 def test_model_list_marks_local_rows_in_the_table(runner, monkeypatch, isolated_dirs):
     _stub_bundles(monkeypatch, [])
     _stub_local(monkeypatch, [{"name": "someone/private"}])
-    result = runner.invoke(app, ["model", "list"])
+    result = runner.invoke(app, ["model", "list", "--unverified"])
     assert "someone/private" in result.output
     assert "local" in result.output
     # the installed column is gone — source carries it now
@@ -1563,7 +1590,7 @@ def test_model_search_offline_is_refused_without_calling_tt_model(
 ):
     result = runner.invoke(app, ["--offline", "model", "search"])
     assert result.exit_code == ExitCode.OFFLINE
-    assert "list --community --cached" in result.output
+    assert "list --cached --unverified" in result.output
     assert not fake_model_manager.exists()
 
 
@@ -2061,3 +2088,106 @@ def test_plain_text_model_verbs_refuse_json_clearly(runner, argv):
     assert result.exit_code == 2, result.output
     assert "No such option" not in result.output
     assert "Drop --json" in result.output
+
+
+
+# -- verified / unverified ------------------------------------------------------------
+_COPY = {"name": "Tenstorrent/Qwen3-32B", "copy_of": "someauthor/qwen3-32b-p150"}
+_ORIGINAL = {"name": "someauthor/qwen3-32b-p150"}
+
+
+def _status_cells(output: str) -> dict[str, str]:
+    rows = {}
+    for line in output.splitlines():
+        if line.startswith("│"):
+            cells = [c.strip() for c in line.strip("│").split("│")]
+            if cells[0]:
+                rows[cells[0]] = cells[5]  # status
+    return rows
+
+
+def test_model_list_shows_only_verified_models_by_default(
+    runner, monkeypatch, isolated_dirs
+):
+    """Verified = the released catalog plus bundles in the Tenstorrent org. A
+    community original is kept, but only listed with --unverified."""
+    _stub_bundles(monkeypatch, [_COPY, _ORIGINAL])
+    result = runner.invoke(app, ["model", "list", "--hw", "all", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = _json_payload(result.output)
+    assert _community_names(payload) == {"Tenstorrent/Qwen3-32B"}
+    assert any(m["source"] == "tt-inference-server" for m in payload["models"])
+    assert all(m["verified"] for m in payload["models"])
+    assert payload["unverified_hidden"] == 1
+
+
+def test_model_list_says_how_many_unverified_were_left_out(
+    runner, monkeypatch, isolated_dirs
+):
+    _stub_bundles(monkeypatch, [_COPY, _ORIGINAL])
+    monkeypatch.setenv("COLUMNS", "200")
+    result = runner.invoke(app, ["model", "list", "--hw", "all"])
+    assert result.exit_code == 0, result.output
+    out = " ".join(result.output.split())
+    assert "1 unverified not shown: `--unverified` to include them." in out
+
+
+def test_model_list_unverified_labels_the_original_and_keeps_the_copy(
+    runner, monkeypatch, isolated_dirs
+):
+    _stub_bundles(monkeypatch, [_COPY, _ORIGINAL])
+    monkeypatch.setenv("COLUMNS", "200")  # one line per row
+    result = runner.invoke(app, ["model", "list", "--unverified", "--hw", "all"])
+    assert result.exit_code == 0, result.output
+    cells = _status_cells(result.output)
+    assert cells["Tenstorrent/Qwen3-32B"] == "verified"
+    assert cells["someauthor/qwen3-32b-p150"] == "unverified"
+    assert "not shown" not in result.output
+
+
+def test_model_list_marks_the_released_catalog_verified(runner, monkeypatch, isolated_dirs):
+    _stub_bundles(monkeypatch, [])
+    result = runner.invoke(
+        app, ["model", "list", "--unverified", "--hw", "all", "--json"]
+    )
+    catalog = [
+        m for m in _json_payload(result.output)["models"]
+        if m["source"] == "tt-inference-server"
+    ]
+    assert catalog and all(m["verified"] for m in catalog)
+
+
+def test_model_list_json_links_a_copy_to_its_original(runner, monkeypatch, isolated_dirs):
+    _stub_bundles(monkeypatch, [_COPY, _ORIGINAL])
+    result = runner.invoke(
+        app, ["model", "list", "--unverified", "--hw", "all", "--json"]
+    )
+    rows = {m["name"]: m for m in _json_payload(result.output)["models"]}
+    assert rows["Tenstorrent/Qwen3-32B"]["copy_of"] == "someauthor/qwen3-32b-p150"
+    assert rows["someauthor/qwen3-32b-p150"]["verified"] is False
+    assert rows["someauthor/qwen3-32b-p150"]["copy_of"] is None
+
+
+def test_model_list_still_completes_an_unverified_bundle(runner, monkeypatch, isolated_dirs):
+    """Leaving a bundle out of the default list must not stop `tt serve <TAB>`
+    from offering it: it still serves by id."""
+    from tenstorrent.modelhub import bundles
+
+    _stub_bundles(monkeypatch, [_COPY, _ORIGINAL])
+    result = runner.invoke(app, ["model", "list"])
+    assert result.exit_code == 0, result.output
+    assert "someauthor/qwen3-32b-p150" in bundles.cached_community_names()
+
+
+def test_model_list_offline_shows_an_installed_copy_but_not_an_unverified_install(
+    runner, monkeypatch, isolated_dirs
+):
+    """Verified is a namespace test, so it needs no Hub."""
+    _stub_local(monkeypatch, [{"name": "tenstorrent/qwen3-32b"}, {"name": "someauthor/foo"}])
+    result = runner.invoke(
+        app, ["--offline", "model", "list", "--hw", "all", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = _json_payload(result.output)
+    assert _community_names(payload) == {"tenstorrent/qwen3-32b"}
+    assert payload["unverified_hidden"] == 1

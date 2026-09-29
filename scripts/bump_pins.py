@@ -340,6 +340,11 @@ _REVIEW_ITEMS = {
     "tt-sw-manifest (golden)": [
         "Re-capture the tt-smi parser fixtures after a real `tt update` if the smi version moved.",
     ],
+    "tt-model (tt-model-manager)": [
+        "Check `VERIFIED_ORG` and `VERIFIED_SOURCE_KEY` in modelhub/bundles.py still match "
+        "`TT_ORG` and `VERIFIED_SOURCE_KEY` upstream. A renamed key fails silently: copies lose "
+        "their `copy_of` link in --json.",
+    ],
 }
 
 

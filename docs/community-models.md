@@ -33,7 +33,7 @@ To see what your machine can run:
 tt model list
 ```
 
-The CLI knows your hardware: the list is backed by a generated support list (built from tt-inference-server's `release_model_spec.json` at the pinned server version, plus tt's own record of known-not-working board combinations) and filtered by your detected device configuration. A model known to fail on your board is hidden, and `tt model info` says why. Use `--all` to see every model on every device, `--hw <device>` to filter for a specific configuration without touching the hardware, and `--cached` and `--type` to narrow further. The list mixes two sources, marked in the `source` column: the released catalog (`tt-inference-server`) is models Tenstorrent ships and tests, the place to start when you want known per-device support; community bundles (`HuggingFace`, or `local` once installed) are bundles anyone has published with tt-model-manager, which Tenstorrent does not test or maintain (covered below). `--catalog` and `--community` show just one source. Model names are the spec's short ids (`Llama-3.1-8B-Instruct`); a HuggingFace repo id works as an alias anywhere a name is accepted.
+The CLI knows your hardware: the list is backed by a generated support list (built from tt-inference-server's `release_model_spec.json` at the pinned server version, plus tt's own record of known-not-working board combinations) and filtered by your detected device configuration. A model known to fail on your board is hidden, and `tt model info` says why. Use `--hw all` to see every model on every device, `--hw <device>` to filter for a specific configuration without touching the hardware, and `--cached` and `--type` to narrow further. The list shows verified models only: the released catalog (`tt-inference-server` in the `source` column), models Tenstorrent ships and tests, plus community bundles Tenstorrent has reviewed (`HuggingFace`, or `local` once installed; covered below). `--unverified` adds every other community bundle. Model names are the spec's short ids (`Llama-3.1-8B-Instruct`); a HuggingFace repo id works as an alias anywhere a name is accepted.
 
 Before committing to a large download, inspect the model:
 
@@ -67,7 +67,7 @@ Model bring-up on new silicon has always had an awkward afterlife. Someone does 
 tt-model-manager changes what a finished bring-up *is*: a self-contained bundle published as a HuggingFace repo, and tt-cli surfaces it in the same commands you already use:
 
 ```bash
-tt model list --community            # only community bundles, not the released catalog
+tt model list --unverified           # every community bundle, verified or not
 tt model search gemma --catalog      # search the Hub for published bundles
 tt model info you/mymodel            # manifest + compatibility verdict (via tt-model), or the catalog row
 tt model pull you/mymodel
@@ -121,7 +121,19 @@ tt-model unpublish you/my-model                    # delist (repo untouched)
 
 `tt model publish` / `tt model unpublish` do the same from tt (publish asks first, since it makes a private repo public), and `tt model package` / `package-thin` / `push` forward to the tt-model commands above unchanged, so an author never has to leave `tt`.
 
-This is not a submission queue. You push to *your* HF account under *your* governance; the catalog is a static index that stores nothing — every entry points back at your repo. Publishing a model for TT hardware needs no one's permission, including Tenstorrent's. Once published, it appears in `tt model list --community` for everyone, and is servable with `tt serve you/my-model`.
+This is not a submission queue. You push to *your* HF account under *your* governance; the catalog is a static index that stores nothing — every entry points back at your repo. Publishing a model for TT hardware needs no one's permission, including Tenstorrent's. Once published, it appears in `tt model list --unverified` for everyone, and is servable with `tt serve you/my-model`.
+
+### Verified and unverified bundles
+
+Publishing needs no one's permission, so a new bundle is **unverified**. `tt model list` shows only verified models by default; `--unverified` adds the rest, marked `unverified` in the `status` column. An unverified bundle still pulls and serves by id.
+
+A bundle becomes **verified** when Tenstorrent reviews it and copies it into the `Tenstorrent` organisation on the Hub, which only Tenstorrent can write to. The released catalog is verified too.
+
+If your bundle is verified:
+
+- **Your repo is not touched**, and it stays listed as unverified under `--unverified`, next to the copy.
+- **The copy credits you** in the first line of its card, and `--json` names your repo as its `copy_of`.
+- **The copy is a snapshot** of the revision that was reviewed. It does not follow your later commits.
 
 ### What the consumer sees
 

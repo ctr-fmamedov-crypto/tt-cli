@@ -85,7 +85,7 @@ def _detect_device(appctx) -> str | None:
     except TTError as err:
         appctx.output.warn(
             f"device detection skipped ({err.what}) — "
-            "showing all models; use --hw <device> or --all."
+            "showing all models; use --hw <device> or --hw all."
         )
         return None
     device = infer_device_config(snap.devices)
@@ -129,7 +129,7 @@ def _validate_hardware(hardware: str) -> str:
     raise TTError(
         f"{hardware!r} is not a recognized hardware target.",
         why="It matches no catalog device and no known board/mesh tag.",
-        next_step="Run `tt model list --all` to see catalog devices, or drop "
+        next_step="Run `tt model list --hw all` to see catalog devices, or drop "
         "--hw to auto-detect.",
         exit_code=ExitCode.USAGE,
     )
@@ -138,6 +138,7 @@ def _validate_hardware(hardware: str) -> str:
 _MODEL_CAPTION = (
     "source: tt-inference-server catalog vs. HuggingFace/local community. "
     "profiles: smallest board/mesh tag per capability. "
+    "status: verified = reviewed by Tenstorrent. "
     "`tt model list --help` for details."
 )
 
@@ -193,6 +194,8 @@ def _catalog_row(m: dict) -> dict:
         "source": "tt-inference-server",
         "type": m["model_type"],
         "hardware": bundles.drop_superseded_hardware(profiles),
+        # The released catalog is Tenstorrent's own tested list.
+        "verified": True,
     }
 
 
@@ -223,9 +226,15 @@ def _model_table(payload: dict, *, hardware: str | None, detected: bool) -> Tabl
     if hardware:
         title += f" for {hardware}"
         if detected:
-            title += " (detected — `tt model list --all` for every device/bundle)"
-    table = Table(title=title, caption=_MODEL_CAPTION, caption_justify="left")
-    _add_columns(table, ("name", "source", "engine", "serving profiles", "weights"))
+            title += " (detected — `tt model list --hw all` for every device/bundle)"
+    caption = _MODEL_CAPTION
+    hidden = payload.get("unverified_hidden") or 0
+    if hidden:
+        caption += f" {hidden} unverified not shown: `--unverified` to include them."
+    table = Table(title=title, caption=caption, caption_justify="left")
+    _add_columns(
+        table, ("name", "source", "engine", "serving profiles", "weights", "status")
+    )
     for row in payload["models"]:
         table.add_row(
             row["name"],
@@ -233,6 +242,7 @@ def _model_table(payload: dict, *, hardware: str | None, detected: bool) -> Tabl
             _engines_cell(row),
             _hardware_cell(row, hardware),
             _cached_cell(row),
+            "verified" if row.get("verified") else "unverified",
         )
     return table
 
@@ -251,46 +261,56 @@ def list_models(
     hardware: str = typer.Option(
         None,
         "--hw",
-        help="Filter to a device config (e.g. p300x2); skips auto-detection. "
+        help="Filter to a device config (e.g. p300x2), or `all` for every device; "
+        "skips auto-detection. "
         "For community bundles, matches any whose board/mesh tag needs no more "
         "chips than this, on the same chip family.",
     ),
     all_devices: bool = typer.Option(
-        False, "--all", help="Every model on every device, not just this machine's."
+        False, "--all", hidden=True, help="Deprecated: use --hw all."
     ),
     community: bool = typer.Option(
         False,
         "--community",
-        help="Only community bundles (Hub + local installs) — skip the released "
-        "catalog. Community bundles are models anyone has packaged with "
-        "tt-model-manager and published on the Hugging Face Hub; they are not "
-        "tested or maintained by Tenstorrent. The opposite of --catalog.",
+        hidden=True,
+        help="Deprecated: only community bundles, skipping the released catalog. "
+        "Use --unverified instead.",
     ),
     catalog_only: bool = typer.Option(
         False,
         "--catalog",
-        help="Only the released model catalog (tt-inference-server) — skip "
-        "community bundles. The opposite of --community.",
+        hidden=True,
+        help="Deprecated: only the released catalog, skipping community bundles.",
+    ),
+    unverified: bool = typer.Option(
+        False,
+        "--unverified",
+        help="Also list unverified models: community bundles anyone has "
+        "published, which Tenstorrent has not reviewed.",
     ),
     json_mode: JsonFlag = False,
     quiet: QuietFlag = False,
     verbose: VerboseFlag = False,
     no_color: NoColorFlag = False,
 ) -> None:
-    """Browse models that run on this machine: the released catalog plus
-    community tt-model bundles from the Hub (default: detected hardware only).
+    """Browse verified models that run on this machine: the released catalog
+    plus bundles Tenstorrent has reviewed (default: detected hardware only).
+    --unverified adds every other community bundle.
 
     source: `tt-inference-server` is the released catalog — models Tenstorrent
     ships and tests, with known per-device support (`tt model info NAME` for
     details); `HuggingFace` is the community catalog on the Hub — bundles
-    anyone has packaged with tt-model-manager, not tested or maintained by
-    Tenstorrent; `local` is installed here — a bundle on both shows up twice,
-    once per source. Pass --catalog or --community to see just one source.
+    packaged with tt-model-manager; `local` is installed here — a bundle on
+    both shows up twice, once per source. --hw all lists every device.
     profiles: the board/mesh target(s) a model supports, collapsed to the
     smallest tag per capability (a bigger board that adds nothing over a
-    smaller one is left out). Every entry serves with `tt serve <name>`
-    (`tt serve <namespace>/<name>` for a bundle); weights are referenced
-    rather than shipped."""
+    smaller one is left out). status: `verified` is the released catalog and
+    bundles in the Tenstorrent org (reviewed copies of community bundles);
+    `unverified` is every other community bundle, shown with --unverified.
+    A copy's original is kept, as unverified, and --json's `copy_of` on the
+    copy names it. Every entry serves with
+    `tt serve <name>` (`tt serve <namespace>/<name>` for a bundle); weights
+    are referenced rather than shipped."""
     appctx = get_app_context(ctx)
     appctx.output.apply_flags(json_mode=json_mode, quiet=quiet, verbose=verbose, no_color=no_color)
     if community and catalog_only:
@@ -301,6 +321,18 @@ def list_models(
             next_step="Pass at most one, or neither to see both.",
             exit_code=ExitCode.USAGE,
         )
+    # Deprecated for one release: the listing now splits verified from unverified,
+    # which covers what the source flags were for. They still work, with a pointer.
+    if all_devices:
+        appctx.output.warn("--all is deprecated; use --hw all.")
+    for flag, given in (("--community", community), ("--catalog", catalog_only)):
+        if given:
+            appctx.output.warn(
+                f"{flag} is deprecated: `tt model list` shows verified models, and "
+                "--unverified adds community bundles Tenstorrent has not reviewed."
+            )
+    if hardware and hardware.lower() == "all":
+        hardware, all_devices = None, True
     detected = not hardware and not all_devices
     device = _validate_hardware(hardware) if hardware else (
         None if all_devices else _detect_device(appctx)
@@ -311,7 +343,7 @@ def list_models(
     if device:
         # A device the model is known to fail on is not a device it runs on:
         # the whole point of the support list is that `tt model list` never
-        # offers something that will not start. `--all` still shows everything.
+        # offers something that will not start. `--hw all` still shows everything.
         models = [
             m for m in models if device in m.hardware and m.devices[device].supported
         ]
@@ -324,10 +356,16 @@ def list_models(
     # same outcome as any other filter they cannot match, no special-casing.
     if show_community and not model_type:
         rows.extend(_community_rows(appctx, cached=cached, hardware=device))
+    hidden = 0
+    if not unverified:
+        # Completion was already fed every community id, so an unverified bundle
+        # still tab-completes and serves by id; it is only left out of this list.
+        hidden = sum(not r["verified"] for r in rows)
+        rows = [r for r in rows if r["verified"]]
     rows.sort(key=lambda r: (r["name"].lower(), r["source"]))
     scope = "community" if community else "catalog" if catalog_only else "all"
     appctx.output.emit(
-        {"device": device, "scope": scope, "models": rows},
+        {"device": device, "scope": scope, "models": rows, "unverified_hidden": hidden},
         renderer=lambda payload: _model_table(payload, hardware=device, detected=detected),
         page=True,
     )
@@ -337,7 +375,7 @@ def _community_rows(appctx, *, cached: bool, hardware: str | None) -> list[dict]
     """Community bundles published on the Hub, or installed locally.
 
     Filtered the same way as the catalog side: detected device by default,
-    --hw for an explicit one, --all for everything (see
+    --hw for an explicit one, --hw all for everything (see
     bundles.hardware_satisfies for what counts as a match). """
     # Local installs first: they need no network, and they are the only source for a
     # bundle nobody published — someone shares an id, you pull it, the Hub shows
@@ -435,8 +473,8 @@ def search_bundles(
         raise TTError(
             "Searching needs the Hugging Face Hub.",
             why="Published bundles are a Hub index; there is no local copy to search.",
-            next_step="Drop --offline, or `tt model list --community --cached` for "
-            "the bundles installed on this machine.",
+            next_step="Drop --offline, or `tt model list --cached --unverified` "
+            "for the bundles installed on this machine.",
             exit_code=ExitCode.OFFLINE,
         )
     backend = ModelManagerBackend(
@@ -531,7 +569,7 @@ def model_info(
 
 def _bundle_info(appctx, name: str, *, json_mode: bool) -> None:
     """`tt model info` for a tt-model bundle id — the one model verb that used to
-    reject an id `tt model list --community`, `tt model pull` and `tt serve` all accept.
+    reject an id `tt model list --unverified`, `tt model pull` and `tt serve` all accept.
 
     Two sources, by what is available. With tt-model installed and a human reading,
     delegate to `tt-model info`: it prints the manifest and its compatibility verdict
@@ -586,7 +624,7 @@ def _unlisted_bundle(appctx, name: str) -> bundles.BundleInfo:
             f"Could not check whether {name} is a tt-model bundle.",
             why="It is not in the community catalog or installed here, and the Hub "
             "could not be asked (unreachable, private, or rate-limited).",
-            next_step="Check the connection or HF_TOKEN; `tt model list --community` "
+            next_step="Check the connection or HF_TOKEN; `tt model list --unverified` "
             "lists the published bundles.",
             exit_code=ExitCode.ERROR,
         )
@@ -595,7 +633,7 @@ def _unlisted_bundle(appctx, name: str) -> bundles.BundleInfo:
             f"{name} is not a tt-model bundle.",
             why="It is not in the model catalog, not in the community bundle catalog, "
             "and its Hub repo carries no bundle manifest.",
-            next_step="Run `tt model list --community` for bundle ids; a plain "
+            next_step="Run `tt model list --unverified` for bundle ids; a plain "
             f"HuggingFace repo's weights fetch with `tt model pull {name} --weights-only`.",
             exit_code=ExitCode.USAGE,
         )
@@ -616,7 +654,7 @@ def _bundle_info_renderer(payload: dict) -> Table:
     if payload["in_catalog"] is None:
         catalog = "not checked — --offline skips the Hub"
     elif payload["in_catalog"]:
-        catalog = "community (`tt model list --community`)"
+        catalog = "community (`tt model list" + ("`)" if b["verified"] else " --unverified`)")
     elif b["installed"]:
         catalog = "not in the community catalog — installed here"
     else:
@@ -1591,7 +1629,7 @@ def _catalog_listing(appctx, name: str, *, listed: bool, yes: bool) -> None:
         {"model": name, "listed": listed},
         renderer=lambda d: (
             f"{d['model']} is listed in the community catalog — it now shows in "
-            "`tt model list --community`."
+            "`tt model list --unverified`."
             if d["listed"]
             else f"{d['model']} is no longer listed; the repo itself is untouched."
         ),
