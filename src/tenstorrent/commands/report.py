@@ -219,6 +219,8 @@ def report_bundle(
     ),
     json_mode: JsonFlag = False,
     quiet: QuietFlag = False,
+    verbose: VerboseFlag = False,
+    no_color: NoColorFlag = False,
 ) -> None:
     """Write a support bundle: environment, tt-smi snapshot, config, tt and inference-server logs, container logs.
 
@@ -230,7 +232,7 @@ def report_bundle(
     from .report_bundle import default_output_path, write_bundle
 
     appctx = get_app_context(ctx)
-    appctx.output.apply_flags(json_mode=json_mode, quiet=quiet)
+    appctx.output.apply_flags(json_mode=json_mode, quiet=quiet, verbose=verbose, no_color=no_color)
     payload = write_bundle(appctx, output or default_output_path())
     appctx.output.emit(payload, renderer=lambda d: d["path"], soft_wrap=True)
 
