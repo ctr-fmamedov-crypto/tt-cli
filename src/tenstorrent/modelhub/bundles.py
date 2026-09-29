@@ -178,6 +178,7 @@ class BundleInfo:
     # without a per-repo Hub fetch this listing deliberately avoids).
     weights_repo: str | None = None
     weights_bytes: int | None = None
+    verified: bool = False  # in the curated community catalog
 
 
 def _cache_root() -> Path:
@@ -402,6 +403,7 @@ def local_bundles(config: ConfigStore | None = None) -> list[BundleInfo]:
 
     Unordered: the caller merges this with the catalog listing and sorts once."""
     sizes = hub.cached_sizes(config) if config is not None else None
+    verified = curated_ids()
     found = []
     for key, entry in installed_bundles().items():
         repo_id = str(entry.get("repo_id") or key)  # the index preserves the real case
@@ -418,6 +420,7 @@ def local_bundles(config: ConfigStore | None = None) -> list[BundleInfo]:
                 installed=True,
                 weights_repo=weights_repo,
                 weights_bytes=weights_bytes,
+                verified=repo_id.lower() in verified,
             )
         )
     return found
@@ -497,28 +500,58 @@ def _listed_repos(query: str | None, limit: int) -> list[_ListedRepo]:
     the id, as the Hub's `search` matches).
 
     Temporary: read from the curated catalog until whitelisting ships, then this
-    goes back to a Hub query (e.g. the tenstorrent org's bundles), building the
-    same rows from repo tags with _classify."""
+    becomes a Hub query like _hub_repos (e.g. scoped to the tenstorrent org)."""
     wanted = (query or "").lower()
     return [repo for repo in _load_curated() if wanted in repo.id.lower()][:limit]
 
 
-def search_community(
-    *,
-    limit: int = 100,
-    query: str | None = None,
-    config: ConfigStore | None = None,
-) -> list[BundleInfo]:
-    """Bundles in the community listing, in listing order; the caller sorts the
-    merged listing. `config` enables the weights-cache lookup for installed
-    bundles (it resolves the HF cache root).
+def _hub_repos(query: str | None, limit: int) -> list[_ListedRepo]:
+    """Every bundle opted into the Hub's community catalog (the CATALOG_TAG),
+    verified or not, newest first."""
+    from huggingface_hub import HfApi
+    from huggingface_hub.errors import HfHubHTTPError
 
-    A listed bundle with no hardware that was never pulled costs one Hub fetch
-    (see hardware_from_hub_manifest)."""
+    try:
+        found = list(HfApi().list_models(filter=CATALOG_TAG, search=query or None, limit=limit))
+    except (HfHubHTTPError, OSError) as exc:
+        raise TTError(
+            "Could not reach the Hugging Face Hub.",
+            why=str(exc),
+            next_step="Check your connection, or drop --include-unverified to list "
+            "only verified bundles.",
+            exit_code=ExitCode.ERROR,
+        ) from exc
+    repos = []
+    for repo in found:
+        repo_id = str(getattr(repo, "id", "") or "")
+        if not repo_id:
+            continue
+        kind, engine, arch, hardware = _classify(list(getattr(repo, "tags", None) or []))
+        repos.append(
+            _ListedRepo(
+                id=repo_id,
+                kind=kind,
+                engine=engine,
+                arch=arch,
+                hardware=hardware,
+                downloads=getattr(repo, "downloads", None),
+            )
+        )
+    return repos
+
+
+def _enrich(
+    repos: list[_ListedRepo], *, verified: bool, config: ConfigStore | None
+) -> list[BundleInfo]:
+    """Listing rows with install state and cached weights folded in. `config`
+    enables the weights-cache lookup (it resolves the HF cache root).
+
+    A bundle with no hardware that was never pulled costs one Hub fetch (see
+    hardware_from_hub_manifest)."""
     installed = installed_bundles()
     sizes = hub.cached_sizes(config) if config is not None else None
     bundles = []
-    for repo in _listed_repos(query, limit):
+    for repo in repos:
         repo_id, engine, hardware = repo.id, repo.engine, repo.hardware
         entry = installed.get(repo_id.lower())
         weights_repo = weights_bytes = None
@@ -543,9 +576,33 @@ def search_community(
                 installed=entry is not None,
                 weights_repo=weights_repo,
                 weights_bytes=weights_bytes,
+                verified=verified,
             )
         )
     return bundles
+
+
+def search_community(
+    *,
+    limit: int = 100,
+    query: str | None = None,
+    config: ConfigStore | None = None,
+) -> list[BundleInfo]:
+    """Verified bundles in the community listing, in listing order; the caller
+    sorts the merged listing."""
+    return _enrich(_listed_repos(query, limit), verified=True, config=config)
+
+
+def search_unverified(
+    *,
+    limit: int = 100,
+    query: str | None = None,
+    config: ConfigStore | None = None,
+) -> list[BundleInfo]:
+    """Bundles in the Hub's community catalog that are not verified. Needs the Hub."""
+    verified = curated_ids()
+    repos = [r for r in _hub_repos(query, limit) if r.id.lower() not in verified]
+    return _enrich(repos, verified=False, config=config)
 
 
 def describe(

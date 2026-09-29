@@ -34,7 +34,7 @@ from ..backends.serving.model_manager import (
     looks_like_bundle_id,
 )
 from ..backends.serving.studio import StudioBackend
-from .._compat import IntRange, prompt
+from .._compat import IntRange, confirm, prompt
 from ..cli import JsonFlag, NoColorFlag, QuietFlag, VerboseFlag, handle_tt_errors
 from ..context import get_app_context
 from ..errors import ExitCode, TTError
@@ -193,6 +193,13 @@ def serve(
         "them itself.",
         rich_help_panel=PANEL_BUNDLE,
     ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Bundles: serve an unverified bundle without asking.",
+        rich_help_panel=PANEL_BUNDLE,
+    ),
     json_mode: JsonFlag = False,
     quiet: QuietFlag = False,
     verbose: VerboseFlag = False,
@@ -238,6 +245,7 @@ def serve(
             appctx, model, catalog_origin=catalog.origin,
             workflow=workflow, device=device, offline=offline,
             port=port, serve_flags=serve_flags, extra_args=extra_args, dry_run=dry_run,
+            yes=yes,
         )
         return
     if serve_flags:
@@ -585,6 +593,23 @@ def _token_cell(source: str | None) -> str:
     return "none [dim](gated models need `hf auth login` or HF_TOKEN)[/dim]"
 
 
+def _confirm_unverified(appctx, model: str, *, yes: bool) -> None:
+    """Ask before serving an unverified bundle. Non-interactive without --yes is a
+    usage error rather than a silent yes; declining is a clean exit 0."""
+    if yes:
+        return
+    if appctx.output.json_mode or appctx.output.quiet or not _stdin_isatty():
+        raise TTError(
+            f"Refusing to serve unverified bundle {model} without confirmation.",
+            why="stdin is not a terminal (or --json/--quiet is in effect), so there "
+            "is no way to ask.",
+            next_step="Re-run with --yes to serve it anyway.",
+            exit_code=ExitCode.USAGE,
+        )
+    if not confirm(f"Serve unverified bundle {model}?"):
+        raise TTError("Nothing was served.", exit_code=ExitCode.OK)
+
+
 def _serve_with_tt_model_manager(
     appctx,
     model: str,
@@ -597,6 +622,7 @@ def _serve_with_tt_model_manager(
     extra_args: list[str],
     serve_flags: list[str] | None = None,
     dry_run: bool = False,
+    yes: bool = False,
 ) -> None:
     """Fallback path: a name the released spec does not know. Only Hub-style bundle
     ids route here — anything else is a catalog typo and gets the catalog's error."""
@@ -613,14 +639,14 @@ def _serve_with_tt_model_manager(
             "itself (override with its own --arch)."
         )
     try:
-        curated = model.lower() in bundles.curated_ids()
+        verified = model.lower() in bundles.curated_ids()
     except TTError as err:
         appctx.output.warn(f"could not check the community catalog ({err.what}).")
-        curated = True
-    if not curated:
+        verified = True
+    if not verified:
         appctx.output.warn(
-            f"{model} is not in the community catalog (`tt model list --community`); "
-            "it has not been reviewed for listing."
+            f"{model} is not a verified community bundle "
+            "(`tt model list --include-unverified` shows which are)."
         )
     if dry_run:
         plan = backend.plan(
@@ -628,6 +654,8 @@ def _serve_with_tt_model_manager(
         )
         appctx.output.emit(plan, renderer=_plan_renderer)
         return
+    if not verified and "--print" not in (serve_flags or []):
+        _confirm_unverified(appctx, model, yes=yes)
     appctx.output.status(
         f"{model} is not in the model catalog ({catalog_origin}) — "
         "serving it as a tt-model bundle."

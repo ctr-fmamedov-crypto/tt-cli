@@ -15,6 +15,7 @@ import json
 
 import pytest
 
+from tenstorrent.modelhub import bundles
 from tenstorrent.modelhub.bundles import (
     MANIFEST_NAME,
     _classify,
@@ -290,3 +291,59 @@ def test_a_missing_community_catalog_override_is_a_config_error(tmp_path, monkey
     with pytest.raises(TTError) as err:
         curated_ids()
     assert err.value.exit_code == ExitCode.CONFIG
+
+
+# -- unverified bundles (the Hub's community catalog) -------------------------------
+class _HubRepo:
+    def __init__(self, id, tags, downloads=0):
+        self.id, self.tags, self.downloads = id, tags, downloads
+
+
+def test_search_unverified_lists_hub_bundles_outside_the_curated_catalog(
+    curated_catalog, monkeypatch
+):
+    curated_catalog("ns/Verified")
+    monkeypatch.setattr(
+        "huggingface_hub.HfApi.list_models",
+        lambda self, **kw: iter([
+            _HubRepo("NS/verified", ["p150"]),
+            _HubRepo("ns/other", ["tt-model-container", "vllm-plugin", "blackhole", "p300x2"], 7),
+        ]),
+    )
+    (found,) = bundles.search_unverified()
+    assert (found.name, found.kind, found.engine, found.arch, found.hardware) == (
+        "ns/other", "container", "vllm-plugin", ["blackhole"], ["p300x2"]
+    )
+    assert (found.downloads, found.verified) == (7, False)
+
+
+def test_search_community_rows_are_verified(curated_catalog):
+    curated_catalog({"repo": "ns/v", "hardware": ["p150"]})
+    assert [b.verified for b in search_community()] == [True]
+
+
+def test_local_bundles_are_verified_by_the_curated_catalog(
+    tmp_path, curated_catalog, monkeypatch
+):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    (tmp_path / "tt-model").mkdir()
+    (tmp_path / "tt-model" / "installed.json").write_text(
+        json.dumps({"ns/v": {"repo_id": "ns/v"}, "ns/u": {"repo_id": "ns/u"}})
+    )
+    curated_catalog("NS/V")
+    assert {b.name: b.verified for b in bundles.local_bundles()} == {"ns/v": True, "ns/u": False}
+
+
+def test_search_unverified_is_a_tt_error_when_the_hub_is_unreachable(
+    curated_catalog, monkeypatch
+):
+    from tenstorrent.errors import TTError
+
+    curated_catalog()
+
+    def boom(self, **kw):
+        raise OSError("network down")
+
+    monkeypatch.setattr("huggingface_hub.HfApi.list_models", boom)
+    with pytest.raises(TTError, match="Could not reach the Hugging Face Hub"):
+        bundles.search_unverified()

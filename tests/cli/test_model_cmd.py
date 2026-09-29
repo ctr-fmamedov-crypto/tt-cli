@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tenstorrent.cli import app
-from tenstorrent.errors import ExitCode
+from tenstorrent.errors import ExitCode, TTError
 
 
 
@@ -41,11 +41,18 @@ def small_spec(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def verified_test_bundle(curated_catalog):
+    """`tt serve ns/bundle` here exercises tt-model, not the unverified-bundle prompt."""
+    curated_catalog("ns/bundle")
+
+
+@pytest.fixture(autouse=True)
 def no_community_bundles_by_default(monkeypatch):
     """`tt model list` always fetches community bundles alongside the catalog — keep
     this suite network-free by default; a test that cares about the community rows
     overrides this with its own `_stub_bundles`/`_stub_local` stub."""
     monkeypatch.setattr("tenstorrent.modelhub.bundles.search_community", lambda **kw: [])
+    monkeypatch.setattr("tenstorrent.modelhub.bundles.search_unverified", lambda **kw: [])
 
 
 def _set_cache(monkeypatch, sizes):
@@ -1262,9 +1269,8 @@ def test_model_list_offline_shows_local_bundles_only(
 
     monkeypatch.setattr(
         "tenstorrent.modelhub.bundles.local_bundles",
-        lambda **kw: [BundleInfo(name="ns/local", source="local", installed=True)],
+        lambda **kw: [BundleInfo(name="ns/local", source="local", installed=True, verified=True)],
     )
-    monkeypatch.setattr("tenstorrent.modelhub.bundles.curated_ids", lambda: {"ns/local"})
 
     def boom(**kw):  # pragma: no cover - the Hub must not be reached
         raise AssertionError("the Hub was queried under --offline")
@@ -1298,14 +1304,13 @@ def test_model_list_cached_cell_states(runner, monkeypatch, isolated_dirs):
     assert cached["ns/unpulled"] == "—"  # not pulled, so the reference is unknown
 
 
-def _stub_local(monkeypatch, entries, *, curated=True):
-    """Stub the install index; `curated` also puts these bundles in the community catalog."""
+def _stub_local(monkeypatch, entries, *, verified=True):
     from tenstorrent.modelhub.bundles import BundleInfo
 
-    made = [BundleInfo(source="local", installed=True, **e) for e in entries]
+    made = [
+        BundleInfo(source="local", installed=True, verified=verified, **e) for e in entries
+    ]
     monkeypatch.setattr("tenstorrent.modelhub.bundles.local_bundles", lambda **kw: made)
-    ids = {b.name.lower() for b in made} if curated else set()
-    monkeypatch.setattr("tenstorrent.modelhub.bundles.curated_ids", lambda: ids)
     return made
 
 
@@ -1324,10 +1329,86 @@ def test_model_list_lists_curated_local_bundles(runner, monkeypatch, isolated_di
 def test_model_list_hides_uncurated_local_bundles(runner, monkeypatch, isolated_dirs):
     """An installed bundle outside the community catalog still serves, but is not listed."""
     _stub_bundles(monkeypatch, [])
-    _stub_local(monkeypatch, [{"name": "someone/private"}], curated=False)
+    _stub_local(monkeypatch, [{"name": "someone/private"}], verified=False)
     result = runner.invoke(app, ["model", "list", "--json"])
     assert result.exit_code == 0, result.output
     assert "someone/private" not in {m["name"] for m in _json_payload(result.output)["models"]}
+
+
+def _stub_unverified(monkeypatch, entries):
+    from tenstorrent.modelhub.bundles import BundleInfo
+
+    made = [BundleInfo(verified=False, **e) for e in entries]
+    monkeypatch.setattr("tenstorrent.modelhub.bundles.search_unverified", lambda **kw: made)
+    return made
+
+
+_COMMUNITY_SOURCES = ("HuggingFace", "local")
+
+
+def _community(result) -> dict[str, bool]:
+    return {
+        m["name"]: m["verified"]
+        for m in _json_payload(result.output)["models"]
+        if m["source"] in _COMMUNITY_SOURCES
+    }
+
+
+def test_model_list_hides_unverified_bundles_by_default(runner, monkeypatch, isolated_dirs):
+    _stub_bundles(monkeypatch, [{"name": "ns/good", "verified": True}])
+    _stub_unverified(monkeypatch, [{"name": "ns/hub-only"}])
+    result = runner.invoke(app, ["model", "list", "--all", "--json"])
+    assert result.exit_code == 0, result.output
+    assert _community(result) == {"ns/good": True}
+
+
+def test_model_list_include_unverified_adds_them_and_local_installs(
+    runner, monkeypatch, isolated_dirs
+):
+    _stub_bundles(monkeypatch, [{"name": "ns/good", "verified": True}])
+    _stub_unverified(monkeypatch, [{"name": "ns/hub-only"}])
+    _stub_local(monkeypatch, [{"name": "someone/private"}], verified=False)
+    result = runner.invoke(app, ["model", "list", "--all", "--include-unverified", "--json"])
+    assert result.exit_code == 0, result.output
+    assert _community(result) == {"ns/good": True, "ns/hub-only": False, "someone/private": False}
+    catalog = [
+        m for m in _json_payload(result.output)["models"] if m["source"] not in _COMMUNITY_SOURCES
+    ]
+    assert {m["source"] for m in catalog} == {"tt-inference-server", "tt-studio"}
+    assert all(m["verified"] for m in catalog)
+
+
+def test_model_list_shows_the_verified_column_only_with_the_flag(
+    runner, monkeypatch, isolated_dirs
+):
+    _stub_bundles(monkeypatch, [{"name": "ns/good", "verified": True}])
+    _stub_unverified(monkeypatch, [{"name": "ns/hub-only"}])
+    plain = runner.invoke(app, ["model", "list", "--all", "--community"])
+    assert "verified" not in _table_header(plain.output)
+    assert "ns/hub-only" not in plain.output
+    flagged = runner.invoke(app, ["model", "list", "--all", "--community", "--include-unverified"])
+    assert "verified" in _table_header(flagged.output)
+    assert "ns/hub-only" in flagged.output
+
+
+def test_model_list_include_unverified_degrades_when_the_hub_is_down(
+    runner, monkeypatch, isolated_dirs
+):
+    _stub_bundles(monkeypatch, [{"name": "ns/good", "verified": True}])
+
+    def boom(**kw):
+        raise TTError("Could not reach the Hugging Face Hub.")
+
+    monkeypatch.setattr("tenstorrent.modelhub.bundles.search_unverified", boom)
+    result = runner.invoke(app, ["model", "list", "--all", "--include-unverified", "--json"])
+    assert result.exit_code == 0, result.output
+    assert "unverified bundles skipped" in result.output
+    assert _community(result) == {"ns/good": True}
+
+
+def test_model_list_include_unverified_conflicts_with_catalog(runner, isolated_dirs):
+    result = runner.invoke(app, ["model", "list", "--catalog", "--include-unverified"])
+    assert result.exit_code == ExitCode.USAGE
 
 
 def test_model_list_lists_a_bundle_once_per_source(
