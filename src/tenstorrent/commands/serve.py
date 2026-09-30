@@ -601,6 +601,15 @@ def _token_cell(source: str | None) -> str:
     return "none [dim](gated models need `hf auth login` or HF_TOKEN)[/dim]"
 
 
+# Printed under the unverified-bundle warning, so the [y/N] after it is an informed
+# choice: "unverified" means both untested and unreviewed.
+_UNVERIFIED_RISKS = (
+    "  Untested: Tenstorrent hasn't run it on hardware, so it may not work.\n"
+    "  Unreviewed: Tenstorrent hasn't checked its code for security issues.\n"
+    "  We recommend a verified bundle instead (`tt model list` shows them)."
+)
+
+
 def _confirm_unverified(appctx, model: str, *, yes: bool) -> None:
     """Ask before serving an unverified bundle. Non-interactive without --yes is a
     usage error rather than a silent yes; declining is a clean exit 0."""
@@ -615,7 +624,10 @@ def _confirm_unverified(appctx, model: str, *, yes: bool) -> None:
             exit_code=ExitCode.USAGE,
         )
     if not confirm(f"Serve unverified bundle {model}?"):
-        raise TTError("Nothing was served.", exit_code=ExitCode.OK)
+        # A plain line, not a TTError: declining is not a failure, and a TTError
+        # renders as a red error card whatever its exit code.
+        appctx.output.status("Nothing was served.", style="red")
+        raise typer.Exit(int(ExitCode.OK))
 
 
 def _serve_with_tt_model_manager(
@@ -652,14 +664,13 @@ def _serve_with_tt_model_manager(
         # Fail closed: an unreadable catalog must not skip the confirmation.
         appctx.output.warn(
             f"could not check the community catalog ({err.what}); "
-            f"treating {model} as unverified."
+            f"treating {model} as unverified.\n{_UNVERIFIED_RISKS}"
         )
         verified = False
     else:
         if not verified:
             appctx.output.warn(
-                f"{model} is not a verified community bundle "
-                "(`tt model list --include-unverified` shows which are)."
+                f"{model} is not a verified community bundle.\n{_UNVERIFIED_RISKS}"
             )
     if dry_run:
         plan = backend.plan(

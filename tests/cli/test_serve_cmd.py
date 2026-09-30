@@ -442,6 +442,7 @@ def test_serve_tt_model_serves_an_unverified_bundle_once_confirmed(
     result = runner.invoke(app, ["serve", "ns/bundle"], input="y\n")
     assert result.exit_code == 0, result.output
     assert "ns/bundle is not a verified community bundle" in result.output
+    assert "Untested" in result.output and "security issues" in result.output
     assert "[y/N]" in result.output
     assert _served(fake_model_manager) == [SERVED_NS_BUNDLE]
 
@@ -507,6 +508,7 @@ def test_serve_tt_model_treats_a_broken_catalog_as_unverified(
     refused = runner.invoke(app, ["serve", "ns/bundle"])
     assert refused.exit_code == ExitCode.USAGE
     assert "treating ns/bundle as unverified" in refused.output
+    assert "security issues" in refused.output
     assert _served(fake_model_manager) == []
     confirmed = runner.invoke(app, ["serve", "ns/bundle", "--yes"])
     assert confirmed.exit_code == 0, confirmed.output
