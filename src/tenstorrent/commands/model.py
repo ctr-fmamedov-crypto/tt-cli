@@ -136,9 +136,7 @@ def _validate_hardware(hardware: str) -> str:
 _MODEL_CAPTION = (
     "source: tt-inference-server/tt-studio catalog vs. HuggingFace/local community. "
     "profiles: smallest board/mesh tag per capability. "
-    "via: the paths `tt serve` offers — inference-server (its released spec, the "
-    "default), studio (TT-Studio's catalog; `--studio` picks it), tt-model for a "
-    "bundle. `tt model list --help` for details."
+    "`tt model list --help` for details."
 )
 
 
@@ -233,7 +231,7 @@ def _model_table(
         if detected:
             title += " (detected — `tt model list --all` for every device/bundle)"
     table = Table(title=title, caption=_MODEL_CAPTION, caption_justify="left")
-    columns = ("name", "source", "engine", "serving profiles", "via", "weights")
+    columns = ("name", "source", "engine", "serving profiles", "weights")
     _add_columns(table, columns + (("verified",) if show_verified else ()))
     for row in payload["models"]:
         cells = [
@@ -241,7 +239,6 @@ def _model_table(
             row["source"],
             _engines_cell(row),
             _hardware_cell(row, hardware),
-            ", ".join(row["backends"]),
             _cached_cell(row),
         ]
         if show_verified:

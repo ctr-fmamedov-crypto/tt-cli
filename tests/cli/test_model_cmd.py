@@ -960,7 +960,6 @@ def test_model_list_shows_catalog_and_community_together(
         "source",
         "engine",
         "serving profiles",
-        "via",
         "weights",
     ]
 
@@ -1147,7 +1146,7 @@ def _hardware_cell_by_name(output: str) -> dict[str, str]:
     for line in output.splitlines():
         if line.startswith("│") and "ns/" in line:
             cells = [c.strip() for c in line.strip("│").split("│")]
-            rows[cells[0]] = cells[-3]  # profiles sits before via and weights
+            rows[cells[0]] = cells[-2]  # profiles sits before weights
     return rows
 
 
@@ -1614,8 +1613,7 @@ def test_model_list_shows_which_backend_serves_each_model(runner):
     # in both catalogs: tt-inference-server is the default, studio is offered too
     assert by_name["Llama-3.1-8B-Instruct"]["backends"] == ["inference-server", "studio"]
     table = runner.invoke(app, ["model", "list", "--hw", "p300x2"]).output
-    assert "via" in table
-    assert "inference-server, studio" in table
+    assert "via" not in table
 
 
 def test_model_list_offers_single_chip_studio_models_on_bigger_boards(runner):
