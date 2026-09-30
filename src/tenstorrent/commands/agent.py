@@ -27,7 +27,7 @@ import typer
 from rich.table import Table
 
 from .._compat import IntRange, confirm, prompt
-from ..cli import JsonFlag, QuietFlag, handle_tt_errors
+from ..cli import JsonFlag, NoColorFlag, QuietFlag, VerboseFlag, handle_tt_errors
 from ..context import AppContext, get_app_context
 from ..errors import ExitCode, TTError
 
@@ -299,6 +299,8 @@ def agent(
     ),
     json_mode: JsonFlag = False,
     quiet: QuietFlag = False,
+    verbose: VerboseFlag = False,
+    no_color: NoColorFlag = False,
 ) -> None:
     """Set up Claude Code with Tenstorrent skills for today's task, then launch it.
 
@@ -309,7 +311,7 @@ def agent(
     --json prints the plan and the commands run, and never launches.
     """
     appctx = get_app_context(ctx)
-    appctx.output.apply_flags(json_mode=json_mode, quiet=quiet)
+    appctx.output.apply_flags(json_mode=json_mode, quiet=quiet, verbose=verbose, no_color=no_color)
     extra = list(ctx.args)
 
     claude = ensure_claude(appctx, yes=yes, dry_run=dry_run)
