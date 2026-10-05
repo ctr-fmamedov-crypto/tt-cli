@@ -7,22 +7,35 @@
 tt-cli repo, with an auto-collected environment section in the body. Everything
 is client-side URL building: nothing is uploaded, and the user sees (and can
 edit) every prefilled character before submitting on github.com.
+
+`tt report bundle` writes a redacted tar.gz of everything support usually asks for
+(environment, tt-smi snapshot, config, tt and inference-server logs, container
+logs) — see report_bundle.py — then drafts the support email around it: an `.eml`
+with the archive attached that the desktop mail client opens as an editable draft,
+falling back to a mailto: link (see report_email.py). Nothing is uploaded by tt
+itself; the user reviews the draft and sends it.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import platform
+import sys
 import urllib.parse
 import webbrowser
+from pathlib import Path
 
 import typer
+from rich.panel import Panel
+from rich.text import Text
 
 from .. import __version__
 from ..backends.device import get_device_backend
 from ..cli import JsonFlag, NoColorFlag, QuietFlag, VerboseFlag, handle_tt_errors
 from ..context import AppContext, get_app_context
 from ..errors import ExitCode, TTError
+from ..ui.cards import notice_panel
+from ..ui.format import tilde
 
 report_app = typer.Typer(
     help="Report issues and feedback to Tenstorrent.", no_args_is_help=True
@@ -200,6 +213,180 @@ def report_issue(
             appctx.output.warn(
                 "could not open a browser — copy the URL above into one by hand."
             )
+
+
+def _stdin_isatty() -> bool:
+    """Test seam: CliRunner replaces sys.stdin, so tests patch this, not isatty."""
+    return sys.stdin.isatty()
+
+
+def _short_path(path: str) -> str:
+    """`./name` under the cwd, `~/…` under home: long absolute paths wrap the panel."""
+    try:
+        return f"./{Path(path).relative_to(Path.cwd())}"
+    except ValueError:
+        return tilde(path)
+
+
+def _render_bundle_panel(d: dict, opened: str | None) -> Panel:
+    """Same shape as tt-studio's "Bug report ready" panel. Values go in as Text, not
+    markup: paths and names may carry [brackets] that Rich would swallow.
+    `opened` is "eml", "mailto", "none" (nothing could open) or None (--no-open)."""
+    who = d["assignee"]
+    rows = [
+        ("Reference ", d["reference"]),
+        ("Bundle    ", _short_path(d["path"])),
+        ("Email file", _short_path(d["eml_path"])),
+        ("Email     ", d["to"]),
+        ("Assignee  ", f"{who['name']} <{who['email']}> (this week's triage)"),
+    ]
+    lines: list[Text] = [Text.assemble((f"{k} →  ", "muted"), v) for k, v in rows]
+    lines += [
+        Text(""),
+        Text("1. Open the .eml above in your mail client. The bundle is attached."),
+        Text(f"2. Send it (on macOS: hit Forward and send it to {d['to']})."),
+    ]
+    if opened == "mailto":
+        lines += [
+            Text(""),
+            Text(
+                "Opened a mailto: draft instead; attach the bundle to it before sending.",
+                style="muted",
+            ),
+        ]
+    elif opened == "none":
+        lines += [
+            Text(""),
+            Text(
+                "No mail client opened. Copy the .eml to your own machine and open it there.",
+                style="warning",
+            ),
+        ]
+    return notice_panel("[bold]🐞 Bug report ready[/bold]", lines, border_style="accent")
+
+
+@report_app.command("bundle")
+@handle_tt_errors
+def report_bundle(
+    ctx: typer.Context,
+    title: str | None = typer.Option(
+        None,
+        "--title",
+        "-t",
+        help="Subject of the support email (default: asked for, or 'Bug report').",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Where to write the archive (default: ./tt-cli-logs-<reference>.tar.gz); "
+        "the .eml is written beside it.",
+    ),
+    no_open: bool = typer.Option(
+        False, "--no-open", help="Write the archive and the .eml, but open nothing."
+    ),
+    mailto: bool = typer.Option(
+        False,
+        "--mailto",
+        help="Skip the .eml and open a mailto: draft instead (webmail users; "
+        "attach the archive by hand).",
+    ),
+    json_mode: JsonFlag = False,
+    quiet: QuietFlag = False,
+    verbose: VerboseFlag = False,
+    no_color: NoColorFlag = False,
+) -> None:
+    """Collect a support bundle and open a pre-filled email to Tenstorrent support with it attached.
+
+    The bundle holds environment, tt-smi snapshot, config, tt and inference-server
+    logs and container logs. Secrets (tokens, API keys, passwords, private keys, credentials
+    in URLs, and any credential found on this machine) are redacted from the archive, the
+    email and the output. It keeps hostnames and local paths, so it is meant for
+    support@tenstorrent.com, not a public issue. Every source that is missing or
+    broken is noted in manifest.json instead of failing the command.
+
+    The email is written as an .eml beside the archive and handed to the desktop's
+    mail client as an editable draft; if that is not possible, a mailto: draft is
+    opened. Either way it ends with the reference, both file paths and this week's
+    triage assignee. --json prints the details and never opens anything.
+    """
+    from . import report_email
+    from .report_bundle import default_output_path, make_redactor, scrub, write_bundle
+
+    appctx = get_app_context(ctx)
+    out = appctx.output
+    out.apply_flags(json_mode=json_mode, quiet=quiet, verbose=verbose, no_color=no_color)
+
+    ref = report_email.make_ref()
+    if title is None and not out.json_mode and not out.quiet and _stdin_isatty():
+        title = typer.prompt(
+            "Subject for the support email", default=report_email.DEFAULT_TITLE
+        )
+    out.status("Collecting environment, config, logs and container output …")
+    archive = output or default_output_path(ref)
+    # One redactor for the bundle and the email: a value it removed from a log is
+    # also removed from a title pasted out of the same failing command.
+    redactor = make_redactor(appctx)
+    payload = write_bundle(appctx, archive, ref=ref, redactor=redactor)
+
+    # The title goes into the subject, the .eml body and the mailto: link, and a
+    # title pasted from a failing command can carry its token into all three.
+    title = report_email.clean_title(scrub(redactor, report_email.clean_title(title)))
+    assignee = report_email.assignee_for_date()
+    subject = report_email.build_subject(title, ref)
+    body = scrub(
+        redactor,
+        report_email.build_body(
+            ref=ref,
+            assignee=assignee,
+            title=title,
+            environment_lines=_environment_lines(appctx),
+            archive_name=archive.name,
+        ),
+    )
+    mailto_url = report_email.build_mailto_url(subject, body, archive.name)
+    eml = report_email.eml_path_for(archive, ref)
+    try:
+        eml.write_bytes(
+            report_email.build_eml(subject=subject, body=body, archive=archive, ref=ref)
+        )
+    except OSError as exc:
+        raise TTError(
+            f"Cannot write the support email to {eml}.",
+            why=str(exc),
+            next_step=f"The bundle is at {archive}; pass --output to a writable location.",
+            exit_code=ExitCode.ERROR,
+        ) from exc
+
+    payload.update(
+        {
+            "eml_path": str(eml),
+            "to": report_email.SUPPORT_EMAIL,
+            "subject": subject,
+            "assignee": {"name": assignee[0], "email": assignee[1]},
+            "mailto": mailto_url,
+        }
+    )
+
+    opened = None
+    if not out.json_mode and not no_open:
+        opened = "none"
+        if not mailto:
+            out.status("Opening the draft in your mail client …")
+            if report_email.open_file(eml):
+                opened = "eml"
+        if opened == "none":
+            out.status("Opening a mailto: draft …")
+            if report_email.open_mailto(mailto_url):
+                opened = "mailto"
+
+    out.emit(payload, renderer=lambda d: _render_bundle_panel(d, opened))
+    if payload["size_bytes"] > report_email.ATTACHMENT_WARN_BYTES:
+        out.warn(
+            f"the bundle is {payload['size_bytes'] // (1024 * 1024)} MB; most mail "
+            "servers reject attachments over ~25 MB. If the email bounces, share "
+            "the archive another way and quote the reference."
+        )
 
 
 @report_app.command("feedback")
