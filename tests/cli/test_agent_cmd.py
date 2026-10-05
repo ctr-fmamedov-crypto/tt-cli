@@ -73,7 +73,7 @@ def plugin_steps(log: Path) -> list[list[str]]:
 
 # -- goals ---------------------------------------------------------------------------------
 def test_goal_plugins_are_the_documented_sets():
-    assert GOALS["deploy"].plugins == ("tt-deploy",)
+    assert GOALS["deploy"].plugins == ("tt-serve-model",)
     # tt-model-bringup requires tt-autodebug, so the dependency is installed first.
     assert GOALS["bringup"].plugins == ("tt-autodebug", "tt-model-bringup")
     assert GOALS["develop"].plugins == ("tt-skills", "tt-review-skills", "tt-autodebug")
@@ -97,7 +97,7 @@ def test_installs_goal_plugins_and_hands_over(runner, claude_bin, execed, goal):
 def test_goal_accepts_letter_number_and_case(runner, claude_bin, execed, spelling):
     result = runner.invoke(app, ["agent", spelling])
     assert result.exit_code == 0, result.output
-    assert ["plugin", "install", f"tt-deploy@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
+    assert ["plugin", "install", f"tt-serve-model@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
 
 
 def test_unknown_goal_is_usage_error(runner, claude_bin, execed):
@@ -123,7 +123,7 @@ def test_interactive_picker(runner, claude_bin, execed, tty):
 def test_picker_default_is_deploy(runner, claude_bin, execed, tty):
     result = runner.invoke(app, ["agent"], input="\n")
     assert result.exit_code == 0, result.output
-    assert ["plugin", "install", f"tt-deploy@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
+    assert ["plugin", "install", f"tt-serve-model@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
 
 
 def test_picker_needs_a_terminal(runner, claude_bin, execed):
@@ -172,7 +172,7 @@ def test_failed_marketplace_refresh_is_not_fatal(runner, claude_bin, execed, mon
     result = runner.invoke(app, ["agent", "deploy"])
     assert result.exit_code == 0, result.output
     assert "could not refresh" in result.output
-    assert ["plugin", "install", f"tt-deploy@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
+    assert ["plugin", "install", f"tt-serve-model@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
     assert execed == [[str(FAKE_CLAUDE)]]
 
 
@@ -216,7 +216,7 @@ def test_offline_skips_refresh_but_installs(runner, claude_bin, execed, monkeypa
     assert result.exit_code == 0, result.output
     steps = plugin_steps(claude_bin)
     assert ["plugin", "marketplace", "update", MARKETPLACE_NAME] not in steps
-    assert steps == [["plugin", "install", f"tt-deploy@{MARKETPLACE_NAME}"]]
+    assert steps == [["plugin", "install", f"tt-serve-model@{MARKETPLACE_NAME}"]]
 
 
 # -- output modes and hand-off -------------------------------------------------------------------
@@ -250,16 +250,16 @@ def test_json_mode_installs_but_never_launches(runner, claude_bin, execed):
     assert payload["launch"] is None
     assert payload["steps"] == [
         f"{FAKE_CLAUDE} plugin marketplace add tenstorrent/skills",
-        f"{FAKE_CLAUDE} plugin install tt-deploy@{MARKETPLACE_NAME}",
+        f"{FAKE_CLAUDE} plugin install tt-serve-model@{MARKETPLACE_NAME}",
     ]
-    assert ["plugin", "install", f"tt-deploy@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
+    assert ["plugin", "install", f"tt-serve-model@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
     assert execed == []
 
 
 def test_no_launch(runner, claude_bin, execed):
     result = runner.invoke(app, ["agent", "deploy", "--no-launch"])
     assert result.exit_code == 0, result.output
-    assert ["plugin", "install", f"tt-deploy@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
+    assert ["plugin", "install", f"tt-serve-model@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
     assert execed == []
     assert "Start Claude Code with" in result.output
 
@@ -328,7 +328,7 @@ def test_missing_claude_accepted_install_runs_documented_command(
     assert result.exit_code == 0, result.output
     assert ran[0] == ["bash", "-c", CLAUDE_INSTALL_COMMAND]
     launcher = str(home_bin / "claude")
-    assert ["plugin", "install", f"tt-deploy@{MARKETPLACE_NAME}"] == ran[-1][1:]
+    assert ["plugin", "install", f"tt-serve-model@{MARKETPLACE_NAME}"] == ran[-1][1:]
     assert ran[-1][0] == launcher
     assert execed == [[launcher]]
 

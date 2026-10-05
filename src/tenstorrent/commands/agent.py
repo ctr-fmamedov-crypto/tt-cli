@@ -62,7 +62,7 @@ GOALS: dict[str, Goal] = {
         Goal(
             "deploy",
             "Deploy a model on your Tenstorrent hardware",
-            ("tt-deploy",),
+            ("tt-serve-model",),
             "host discovery and deployment readiness for inference on this machine",
         ),
         Goal(

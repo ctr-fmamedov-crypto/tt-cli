@@ -129,7 +129,7 @@ Every path inherits a Hugging Face token: `HF_TOKEN` from the shell if set, else
 
 | Goal | Plugins loaded |
 |---|---|
-| `deploy` — Deploy a model on your Tenstorrent hardware | `tt-deploy` |
+| `deploy` — Deploy a model on your Tenstorrent hardware | `tt-serve-model` |
 | `bringup` — Bring up a new model | `tt-model-bringup` and the `tt-autodebug` it requires |
 | `develop` — Actively develop | `tt-skills`, `tt-review-skills`, `tt-autodebug` |
 
