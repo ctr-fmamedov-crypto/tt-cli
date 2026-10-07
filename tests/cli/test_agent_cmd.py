@@ -100,6 +100,41 @@ def test_goal_accepts_letter_number_and_case(runner, claude_bin, execed, spellin
     assert ["plugin", "install", f"tt-serve-model@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
 
 
+@pytest.fixture
+def telemetry_events(monkeypatch):
+    """Opt in and capture emitted events in memory, the same way
+    tests/unit/test_telemetry.py's `collected` fixture does -- duplicated locally
+    rather than imported across test modules."""
+    from tenstorrent.config.paths import get_paths
+    from tenstorrent.config.store import ConfigStore
+    from tenstorrent.telemetry.session import TelemetrySession
+
+    monkeypatch.setenv("TT_TELEMETRY_FLUSH_MODE", "sync")
+    monkeypatch.delenv("TT_TELEMETRY_DISABLED", raising=False)
+    ConfigStore(get_paths()).set("telemetry.enabled", True)
+    events: list[dict] = []
+    monkeypatch.setattr(TelemetrySession, "_transport", staticmethod(lambda config: events.extend))
+    return events
+
+
+@pytest.mark.parametrize("spelling", ["deploy", "a", "1", "DEPLOY"])
+def test_goal_is_normalized_for_telemetry(runner, claude_bin, execed, telemetry_events, spelling):
+    """Whatever form the goal was supplied in, the emitted event's `agent_goal`
+    must hold the canonical key (see agent.py's ctx.params mutation and
+    telemetry/attributes.py's "agent" allowlist entry) -- a raw "a" or "1"
+    reaching PostHog would silently fail the closed-vocabulary check and just
+    vanish from the event instead of recording "deploy"."""
+    result = runner.invoke(app, ["agent", spelling])
+    assert result.exit_code == 0, result.output
+    assert telemetry_events[0]["properties"]["agent_goal"] == "deploy"
+
+
+def test_interactive_pick_is_normalized_for_telemetry(runner, claude_bin, execed, tty, telemetry_events):
+    result = runner.invoke(app, ["agent"], input="2\n")
+    assert result.exit_code == 0, result.output
+    assert telemetry_events[0]["properties"]["agent_goal"] == "bringup"
+
+
 def test_unknown_goal_is_usage_error(runner, claude_bin, execed):
     result = runner.invoke(app, ["agent", "bogus"])
     assert result.exit_code == ExitCode.USAGE

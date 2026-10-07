@@ -327,6 +327,12 @@ def agent(
         chosen = _pick_goal(appctx)
     else:
         chosen = _resolve_goal(goal)
+    # Normalize to the canonical key (deploy/bringup/develop) regardless of how it was
+    # supplied -- letter, number, or the interactive picker, none of which leave the
+    # raw `goal` param holding a telemetry-safe value otherwise. Telemetry reads
+    # ctx.params after this function returns (see telemetry/attributes.py's "agent"
+    # entry), so this is what it sees.
+    ctx.params["goal"] = chosen.key
 
     source = marketplace_source(appctx)
     payload = {
