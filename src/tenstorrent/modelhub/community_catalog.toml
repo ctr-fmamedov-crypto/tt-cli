@@ -269,6 +269,14 @@ validation = "sweep"
 validated_on = "2026-09-25"
 
 [[bundle]]
+repo = "ndaly/MiMo-V2.6-Distill-Qwen-9B-tt-p150"
+kind = "container"
+engine = "vllm-plugin"
+hardware = ["p150"]
+validation = "separate"
+validated_on = "2026-10-09"
+
+[[bundle]]
 repo = "ndaly/Mistral-Small-4-119B-2603-tt-p300x2"
 kind = "container"
 engine = "vllm-plugin"
@@ -277,11 +285,19 @@ validation = "sweep"
 validated_on = "2026-09-25"
 
 [[bundle]]
-repo = "ndaly/Nemotron-3.5-Lightning-30B-A3B-NVFP4-tt-p300x2-vllm026"
+repo = "ndaly/Nemotron-3.5-Lightning-30B-A3B-NVFP4"
 kind = "container"
 engine = "vllm-plugin"
 hardware = ["p300x2"]
-validation = "sweep"
+validation = "separate"
+validated_on = "2026-10-13"
+
+[[bundle]]
+repo = "ndaly/Voxtral-Mini-4B-Realtime-2602-tt-p300x2"
+kind = "container"
+engine = "vllm-plugin"
+hardware = ["p300x2"]
+validation = "separate"
 validated_on = "2026-09-25"
 
 [[bundle]]
@@ -301,12 +317,28 @@ validation = "separate"
 validated_on = "2026-10-01"
 
 [[bundle]]
+repo = "raahemnabeel/glm-4.5-air-blackhole"
+kind = "container"
+engine = "vllm-plugin"
+hardware = ["p150x4", "p300x2"]
+validation = "separate"
+validated_on = "2026-10-14"
+
+[[bundle]]
 repo = "raahemnabeel/qwen3-coder-30b-a3b"
 kind = "container"
 engine = "vllm-plugin"
 hardware = ["p150x4", "p300x2"]
 validation = "sweep"
 validated_on = "2026-09-25"
+
+[[bundle]]
+repo = "raahemnabeel/qwen3-coder-next-blackhole"
+kind = "container"
+engine = "vllm-plugin"
+hardware = ["p150x2", "p150x4", "p300", "p300x2"]
+validation = "separate"
+validated_on = "2026-10-06"
 
 [[bundle]]
 repo = "sjettTT/qwen3.8-flash-next_p150x4"

@@ -48,6 +48,7 @@ from ..modelhub.catalog import ModelCatalog, unknown_model_error
 from ..modelhub import bundles, hub
 from ..modelhub.studio import studio_only
 from ..modelhub.completions import complete_bundle_id, complete_local_model, complete_model
+from .serve import SERVE_CONTEXT_SETTINGS, serve
 
 model_app = typer.Typer(
     help="Model management: browse, search, pull, query, stop and remove models.",
@@ -593,26 +594,33 @@ def _bundle_info(appctx, name: str, *, json_mode: bool) -> None:
     reject an id `tt model list --community`, `tt model pull` and `tt serve` all accept.
 
     Two sources, by what is available. With tt-model installed and a human reading,
-    delegate to `tt-model info`: it prints the manifest and its compatibility verdict
-    against this machine, which tt has no business reimplementing. Otherwise render
-    the catalog row tt reads on its own — the same one the community listing shows,
-    plus the pulled manifest's launch settings. That covers: tt-model not installed
-    (info is inspection and must not clone-and-build a tool to describe a bundle,
-    the same rule as stop/rm); --json (tt-model prints a manifest followed by prose,
-    not one document); --offline (tt-model info fetches the manifest from the Hub).
+    query `tt-model info` for its manifest and compatibility verdict against this machine,
+    rendering it in tt's structured table. When tt-model is not installed, render the
+    catalog row tt reads on its own (info is inspection and must not clone-and-build a tool).
+    Under --json, emit tt's canonical bundle document.
     """
     backend = ModelManagerBackend(
         appctx.registry, appctx.runner, appctx.config, appctx.output
     )
     installed_tool = backend.is_installed()
+    compatibility: str | None = None
+    manifest: dict | None = None
     if installed_tool and not json_mode and not appctx.offline:
-        backend.info(name)
-        return
+        manifest, compatibility = backend.inspect(name)
+
     row = bundles.describe(name, config=appctx.config, offline=appctx.offline)
     # None: not asked (--offline), so neither "listed" nor "unlisted" is honest.
     in_catalog = None if appctx.offline else (row is not None and row.source != "local")
     if row is None:
-        row = _unlisted_bundle(appctx, name)
+        if manifest:
+            row = bundles.BundleInfo(
+                name=name,
+                kind=manifest.get("kind") or ("container" if manifest.get("container") else None),
+                engine=manifest.get("engine") or (manifest.get("container", {}).get("kind")),
+                arch=[manifest["arch"]] if isinstance(manifest.get("arch"), str) else manifest.get("arch", []),
+            )
+        else:
+            row = _unlisted_bundle(appctx, name)
     appctx.output.emit(
         {
             "source": "tt-model-catalog",
@@ -620,6 +628,7 @@ def _bundle_info(appctx, name: str, *, json_mode: bool) -> None:
             "in_catalog": in_catalog,
             "serve": bundles.serve_details(name),
             "tt_model_installed": installed_tool,
+            "compatibility": compatibility,
             "offline": appctx.offline,
         },
         renderer=_bundle_info_renderer,
@@ -718,7 +727,9 @@ def _bundle_info_renderer(payload: dict) -> Table:
     table.add_row(
         "servable", f"yes — `tt serve {name}`; preview with `tt serve {name} --dry-run`"
     )
-    if payload["offline"] and payload["tt_model_installed"]:
+    if payload.get("compatibility"):
+        table.add_row("compatibility", payload["compatibility"])
+    elif payload["offline"] and payload["tt_model_installed"]:
         table.add_row(
             "manifest",
             "[dim]skipped under --offline: `tt-model info` fetches the manifest "
@@ -800,8 +811,8 @@ def pull(
         if offline:
             raise TTError(
                 "Installing a bundle needs the network.",
-                why="`tt-model pull` fetches the bundle (and its image) from the Hub; "
-                "unlike serve, it has no local-only mode.",
+                why="Installing a bundle fetches it (and its image) from the Hub; "
+                "unlike `tt serve`, it has no local-only mode.",
                 next_step="Drop --offline, or `tt serve <name>` if the bundle is "
                 "already installed.",
                 exit_code=ExitCode.OFFLINE,
@@ -890,7 +901,7 @@ def _pull_unlisted(
         raise TTError(
             f"--force / --no-weights only apply to a tt-model bundle, and {name} "
             + ("could not be checked." if is_bundle is None else "is not one."),
-            why="Both flags configure `tt-model pull`; a plain weights download has "
+            why="Both flags configure how a bundle is installed; a plain weights download has "
             "neither a venv to reinstall nor anything but weights to fetch.",
             next_step=f"`tt model pull {name}` to fetch the weights, or `--bundle` to "
             "insist it is a bundle.",
@@ -990,6 +1001,9 @@ def _dispatch(appctx, name: str):
     if not looks_like_bundle_id(name):
         raise unknown_model_error(name, catalog.origin)
     return None, name
+
+
+model_app.command("serve", no_args_is_help=True, context_settings=SERVE_CONTEXT_SETTINGS)(serve)
 
 
 @model_app.command("stop", no_args_is_help=True)
@@ -1151,7 +1165,7 @@ def _logs_bundle(appctx, bundle: str, *, follow: bool, since, tail, profile) -> 
     """Passthrough to `tt-model logs`, which knows only --follow/--profile."""
     if since is not None or tail is not None:
         raise TTError(
-            "tt-model logs has no --since or --tail.",
+            "Bundle logs have no --since or --tail.",
             why="Bundle logs pass straight through to tt-model, which streams the "
             "whole container log or follows it.",
             next_step="`docker logs --since <when> --tail <n> <container>` — "
@@ -1170,7 +1184,7 @@ def _logs_bundle(appctx, bundle: str, *, follow: bool, since, tail, profile) -> 
     rc = backend.logs(bundle, follow=follow, profile=profile)
     if rc not in (0, 130):  # 130 = the user's Ctrl-C on --follow
         raise TTError(
-            f"tt-model logs exited with {rc}.",
+            f"`tt model logs {bundle}` failed (exit {rc}).",
             why="tt-model could not show the bundle's container log; its message is "
             "above.",
             next_step="`tt model ps` lists the running bundles and their profiles; "
@@ -1349,7 +1363,7 @@ def _rm_bundle(
         )
         appctx.output.emit(
             {"model": bundle, "dry_run": True, "delegates_to": argv},
-            renderer=lambda d: "would run: " + " ".join(d["delegates_to"]),
+            renderer=lambda d: "would remove via tt-model: " + " ".join(d["delegates_to"][1:]),
         )
         return
     weights = "and its weights" if include_weights else "keeping its weights"
@@ -1655,7 +1669,7 @@ def _catalog_listing(appctx, name: str, *, listed: bool, yes: bool) -> None:
             f"{name!r} is not a bundle id.",
             why="Only a pushed tt-model bundle (a Hub repo, namespace/name) can be "
             "listed in the community catalog.",
-            next_step="Pass the repo id `tt-model push` printed.",
+            next_step="Pass the repo id `tt model push` printed.",
             exit_code=ExitCode.USAGE,
         )
     if appctx.offline:
@@ -1734,7 +1748,8 @@ def _passthrough(ctx: typer.Context, subcommand: str) -> None:
 
     The command's own help option is disabled (help_option_names=[]) so that
     `tt model package --help` reaches tt-model, whose help is the authoritative flag
-    list, rather than showing a tt page that would only say "see tt-model"."""
+    list, rather than showing a tt page that would only say "see tt-model". `-h`,
+    which tt-model does not know, is forwarded as `--help`."""
     appctx = get_app_context(ctx)
     if appctx.offline:
         raise TTError(
@@ -1746,7 +1761,8 @@ def _passthrough(ctx: typer.Context, subcommand: str) -> None:
     backend = ModelManagerBackend(
         appctx.registry, appctx.runner, appctx.config, appctx.output
     )
-    code = backend.passthrough(subcommand, list(ctx.args))
+    args = ["--help" if arg == "-h" else arg for arg in ctx.args]
+    code = backend.passthrough(subcommand, args)
     if code:
         raise typer.Exit(code)
 

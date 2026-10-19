@@ -390,6 +390,42 @@ class ModelManagerBackend:
         self.output.status(f"Inspecting {repo_id} via tt-model …")
         return self.runner.stream([str(entry), "info", repo_id], env=self._env(), tool=TOOL)
 
+    def inspect(self, repo_id: str) -> tuple[dict | None, str | None]:
+        """Capture `tt-model info <repo_id>` and parse its manifest and compatibility verdict.
+
+        Upstream `tt-model info` prints the bundle's JSON manifest followed by
+        textual compatibility prose against this machine.
+
+        Returns:
+            (manifest_dict, compatibility_verdict_str)
+        """
+        entry = self._installed_entry()
+        self.output.status(f"Inspecting {repo_id} via tt-model …")
+        res = self.runner.capture(
+            [str(entry), "info", repo_id],
+            env=self._env(),
+            tool=TOOL,
+            check=False,
+        )
+        if res.returncode != 0 and not res.stdout.strip():
+            return None, res.stderr.strip() or None
+
+        stdout = res.stdout.strip()
+        manifest: dict | None = None
+        verdict: str | None = None
+
+        if stdout.startswith("{"):
+            try:
+                decoder = json.JSONDecoder()
+                manifest, idx = decoder.raw_decode(stdout)
+                verdict = stdout[idx:].strip() or None
+            except json.JSONDecodeError:
+                verdict = stdout
+        else:
+            verdict = stdout or None
+
+        return manifest, verdict
+
     def profiles(self, repo_id: str) -> int:
         """Show a container package's serve profiles via `tt-model profiles`."""
         entry = self._installed_entry()
@@ -419,11 +455,15 @@ class ModelManagerBackend:
         try:
             rows = json.loads(result.stdout or "[]")
         except ValueError as exc:
+            # capture() keeps the tool's output to itself, so --verbose only shows
+            # it if it is replayed here before the error.
+            for line in [*result.stdout.splitlines(), *result.stderr.splitlines()]:
+                self.output.raw(line)
             tail = (result.stdout or "").strip().splitlines()
             raise TTError(
                 "tt-model search returned something other than JSON.",
                 why=tail[-1] if tail else str(exc),
-                next_step="Run `tt-model search --json` directly to see its output.",
+                next_step="Re-run with --verbose to see the tool's own output.",
                 exit_code=ExitCode.TOOL_FAILED,
                 details={"tool": TOOL},
             ) from exc

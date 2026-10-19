@@ -83,6 +83,7 @@ This is not an exhaustive list. For the full list of commands and options in eac
 | `tt report bundle` | Collect a redacted support bundle (environment, tt-smi snapshot, config, tt and inference-server logs, container logs) and open a pre-filled email to support@tenstorrent.com with it attached (`--title` for the subject, `--no-open` to only write the files, `--mailto` for webmail, `--output` to choose the path) |
 | `tt self update` | Upgrade `tt` itself where it owns its environment (`--check` to only look) — see [Keeping tt up to date](/docs/DEVELOPERS.md) |
 | `tt agent [GOAL]` | Set up Claude Code with the Tenstorrent skills for today's task (deploy a model, bring up a model, or develop) and launch it (`--dry-run` to preview; `--no-launch` to only install the plugins) |
+| `tt launch <client>` | Attach a chat UI or coding agent to the served model (`tt launch list` shows them) — see [Client launchers](/docs/client-launchers.md) |
 
 For a comprehensive view on packaging, publishing and pulling down community models [read more here](/docs/community-models.md)
 
@@ -113,6 +114,9 @@ Run `hf auth login` once (or export `HF_TOKEN`) and `tt serve` stays non-interac
 without one it says so up front rather than stopping at a prompt you cannot see.
 
 ## Interactive clients with `tt launch`
+
+> [!TIP]
+> **Want a chat UI or coding agent on your model?** See **[Client launchers](/docs/client-launchers.md)** for every app `tt launch` can attach: web UIs tt pulls and runs for you (Open WebUI, AnythingLLM) and coding agents you install yourself (OpenCode, pi, Aider, Qwen Code, Hermes Agent). It also lists what to install first for each, and explains where TT Studio fits.
 
 `tt serve` gives you an OpenAI-compatible endpoint; `tt launch` points a client at it. tt discovers what is running by asking the server itself (`GET /v1/models`) and configures the client's endpoint for you. `tt model ps` lists what is being served and on which port, using the same probe.
 
