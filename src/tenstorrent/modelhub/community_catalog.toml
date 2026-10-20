@@ -198,6 +198,13 @@ validation = "sweep"
 validated_on = "2026-09-25"
 
 [[bundle]]
+repo = "jashansinghTT/gpt-oss-20b-blackhole-fast"
+kind = "container"
+engine = "vllm-plugin"
+hardware = ["p150", "p150x2", "p150x4"]
+validation = "separate"
+
+[[bundle]]
 repo = "jashansinghTT/kimi-linear-48b-a3b-instruct-blackhole"
 kind = "container"
 engine = "vllm-plugin"
@@ -206,10 +213,17 @@ validation = "sweep"
 validated_on = "2026-09-25"
 
 [[bundle]]
+repo = "jashansinghTT/minimax-h3-blackhole"
+kind = "container"
+engine = "tt-dit-server"
+hardware = ["p150", "p300x2"]
+validation = "separate"
+
+[[bundle]]
 repo = "jashansinghTT/minimax-music3-blackhole"
 kind = "container"
 engine = "tt-dit-server"
-hardware = ["p150"]
+hardware = ["p100", "p150"]
 validation = "sweep"
 validated_on = "2026-09-25"
 
@@ -225,7 +239,7 @@ validated_on = "2026-09-25"
 repo = "jashansinghTT/s2-pro-blackhole"
 kind = "container"
 engine = "tt-dit-server"
-hardware = ["p150", "p300", "p300x2", "p300x4"]
+hardware = ["p100", "p150", "p300", "p300x2", "p300x4"]
 validation = "sweep"
 validated_on = "2026-09-25"
 
@@ -304,7 +318,7 @@ validated_on = "2026-09-25"
 repo = "raahemnabeel/ornith-1.5-35b-a3b"
 kind = "container"
 engine = "vllm-plugin"
-hardware = ["p150", "p300x2"]
+hardware = ["p100", "p150", "p300x2"]
 validation = "sweep"
 validated_on = "2026-09-25"
 
@@ -380,6 +394,20 @@ validation = "sweep"
 validated_on = "2026-09-25"
 
 [[bundle]]
+repo = "tt-hous/clef"
+kind = "container"
+engine = "tt-dit-server"
+hardware = ["p150x2"]
+validation = "separate"
+
+[[bundle]]
+repo = "tt-hous/clm-v0.1-8b-p150"
+kind = "container"
+engine = "tt-dit-server"
+hardware = ["p150", "p150x4"]
+validation = "separate"
+
+[[bundle]]
 repo = "tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4"
 kind = "container"
 engine = "vllm-plugin"
@@ -410,6 +438,20 @@ validation = "sweep"
 validated_on = "2026-09-25"
 
 [[bundle]]
+repo = "tt-hous/laya-p150"
+kind = "container"
+engine = "tt-dit-server"
+hardware = ["p150", "p150x4"]
+validation = "separate"
+
+[[bundle]]
+repo = "tt-hous/laya-typed-decisions-p150"
+kind = "container"
+engine = "tt-dit-server"
+hardware = ["p150", "p150x4"]
+validation = "separate"
+
+[[bundle]]
 repo = "tt-hous/muse-glimmer-30b"
 kind = "container"
 engine = "vllm-plugin"
@@ -421,7 +463,7 @@ validated_on = "2026-09-25"
 repo = "tt-hous/ornith-1.0-35b-p150"
 kind = "container"
 engine = "vllm-fork"
-hardware = ["p150", "p150x2", "p150x4"]
+hardware = ["p100", "p150", "p150x2", "p150x4"]
 validation = "sweep"
 validated_on = "2026-09-25"
 
