@@ -26,7 +26,7 @@ from pathlib import Path
 import typer
 from rich.table import Table
 
-from .._compat import IntRange, confirm, prompt
+from .._compat import confirm, prompt
 from ..cli import JsonFlag, NoColorFlag, QuietFlag, VerboseFlag, handle_tt_errors
 from ..context import AppContext, get_app_context
 from ..errors import ExitCode, TTError
@@ -104,14 +104,24 @@ def _resolve_goal(value: str) -> Goal:
     )
 
 
+def _parse_choice(value: str) -> Goal:
+    """The picker's answer: a letter, a number or a goal name, like `tt agent <goal>`."""
+    try:
+        return _resolve_goal(value)
+    except TTError:
+        # BadParameter makes the prompt ask again instead of aborting the command.
+        raise typer.BadParameter(
+            f"enter a letter (a-c), a number (1-{len(GOALS)}) or one of: {', '.join(GOALS)}"
+        ) from None
+
+
 def _pick_goal(appctx: AppContext) -> Goal:
     goals = list(GOALS.values())
     appctx.output.status("What are you looking to do today?")
     for letter, goal in zip("abc", goals):
         appctx.output.status(f"  {letter}. {goal.title}")
     # err=True keeps the prompt on stderr: stdout stays pure data.
-    choice = prompt("Choice", default=1, type=IntRange(1, len(goals)), err=True)
-    return goals[choice - 1]
+    return prompt("Choice", default="1", value_proc=_parse_choice, err=True)
 
 
 def marketplace_source(appctx: AppContext) -> str:
@@ -129,6 +139,17 @@ def marketplace_source(appctx: AppContext) -> str:
 
 
 # -- Claude Code -------------------------------------------------------------------
+def _run(appctx: AppContext, argv: list[str], *, check: bool, tool: str) -> int:
+    """Run a setup command. Its output goes to the terminal, except with --json, where
+    stdout must stay a single JSON document: there the output is captured instead."""
+    if appctx.output.json_mode:
+        result = appctx.runner.capture(argv, check=check, tool=tool)
+        for line in (result.stdout + result.stderr).splitlines():
+            appctx.output.debug(f"{tool}: {line}")
+        return result.returncode
+    return appctx.runner.stream(argv, check=check, tool=tool)
+
+
 def find_claude(appctx: AppContext) -> str | None:
     """An installed Claude Code: TT_TOOL_BIN_CLAUDE → tools.override.claude → PATH →
     the native installer's launcher. None if there is none."""
@@ -190,7 +211,7 @@ def ensure_claude(appctx: AppContext, *, yes: bool, dry_run: bool) -> str:
         if not confirm("Run it now?"):
             raise _missing_claude_error(manual)
     appctx.output.status("Installing Claude Code …")
-    appctx.runner.stream(["bash", "-c", CLAUDE_INSTALL_COMMAND], tool="claude-installer")
+    _run(appctx, ["bash", "-c", CLAUDE_INSTALL_COMMAND], check=True, tool="claude-installer")
     found = find_claude(appctx)
     if not found:
         raise TTError(
@@ -264,7 +285,7 @@ def install_plugins(appctx: AppContext, claude: str, goal: Goal) -> list[list[st
         if refresh and appctx.offline:
             appctx.output.status("  (skipped: --offline)")
             continue
-        code = appctx.runner.stream(argv, check=not refresh, tool=CLAUDE_BINARY)
+        code = _run(appctx, argv, check=not refresh, tool=CLAUDE_BINARY)
         if refresh and code != 0:
             appctx.output.warn("could not refresh the marketplace; installing from the local copy.")
     return steps

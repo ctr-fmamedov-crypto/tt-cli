@@ -21,6 +21,7 @@ from tenstorrent.commands.agent import (
     MARKETPLACE_NAME,
 )
 from tenstorrent.errors import ExitCode
+from tenstorrent.tools.runner import Runner
 
 FAKE_CLAUDE = Path(__file__).parent.parent / "fakes" / "bin" / "claude"
 
@@ -415,3 +416,55 @@ def test_help_lists_agent_under_workloads(runner):
     result = runner.invoke(app, ["agent", "--help"])
     assert result.exit_code == 0
     assert "deploy, bringup, develop" in result.output
+
+
+# -- review fixes: picker input, --json purity, unknown flags ---------------------------------
+@pytest.mark.parametrize(
+    ("answer", "plugin"),
+    [("b", "tt-model-bringup"), ("C", "tt-review-skills"), ("deploy", "tt-serve-model")],
+)
+def test_interactive_picker_accepts_letters_and_names(runner, claude_bin, execed, tty, answer, plugin):
+    result = runner.invoke(app, ["agent"], input=f"{answer}\n")
+    assert result.exit_code == 0, result.output
+    installed = [a[2] for a in plugin_steps(claude_bin) if a[:2] == ["plugin", "install"]]
+    assert f"{plugin}@{MARKETPLACE_NAME}" in installed
+
+
+def test_interactive_picker_asks_again_on_a_bad_answer(runner, claude_bin, execed, tty):
+    result = runner.invoke(app, ["agent"], input="nope\n2\n")
+    assert result.exit_code == 0, result.output
+    assert "enter a letter" in result.output
+    installed = [a[2] for a in plugin_steps(claude_bin) if a[:2] == ["plugin", "install"]]
+    assert f"tt-model-bringup@{MARKETPLACE_NAME}" in installed
+
+
+def test_json_mode_keeps_claude_output_off_stdout(runner, claude_bin, execed, monkeypatch):
+    """A child process inherits the real stdout, which CliRunner cannot see, so assert
+    on how it is run: with --json no setup command may stream."""
+    streamed: list[list[str]] = []
+    original = Runner.stream
+
+    def spy(self, argv, **kwargs):
+        streamed.append(list(argv))
+        return original(self, argv, **kwargs)
+
+    monkeypatch.setattr(Runner, "stream", spy)
+    result = runner.invoke(app, ["agent", "deploy", "--json"])
+    assert result.exit_code == 0, result.output
+    json.loads(result.output)
+    assert streamed == []
+    assert ["plugin", "install", f"tt-serve-model@{MARKETPLACE_NAME}"] in plugin_steps(claude_bin)
+
+
+def test_json_mode_install_failure_is_tool_failed(runner, claude_bin, execed, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_INSTALL_FAIL", "1")
+    result = runner.invoke(app, ["agent", "deploy", "--json"])
+    assert result.exit_code == ExitCode.TOOL_FAILED
+
+
+@pytest.mark.parametrize("flag", ["--dryrun", "--offline-mode"])
+def test_unknown_tt_flag_is_a_usage_error_not_forwarded(runner, claude_bin, execed, flag):
+    result = runner.invoke(app, ["agent", "deploy", flag])
+    assert result.exit_code == ExitCode.USAGE
+    assert plugin_steps(claude_bin) == []
+    assert execed == []

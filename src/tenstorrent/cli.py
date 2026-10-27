@@ -251,9 +251,10 @@ def _register_commands() -> None:
     app.command(
         "agent",
         rich_help_panel=PANEL_WORKLOADS,
-        # Anything tt does not recognise is forwarded to `claude` at hand-off
-        # (`tt agent deploy -- --resume`) — see commands/agent.py.
-        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+        # Only what follows `--` is forwarded to `claude` at hand-off
+        # (`tt agent deploy -- --resume`) — see commands/agent.py. An unknown tt
+        # flag (`--dryrun`) stays a usage error rather than reaching claude.
+        context_settings={"allow_extra_args": True},
     )(agent)
     # Hidden until the workflows behind them ship: they stay registered so
     # `tt train` / `tt compile` answer with the exit-7 stub instead of a usage
